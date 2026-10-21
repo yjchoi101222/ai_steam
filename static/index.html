@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-STEAM | 인터랙티브 AI 악보 에디터 & OMR 스튜디오</title>
+  <meta name="description" content="AI 기반 악보 인식(OMR), 실시간 오차 교정, 양손 피아노 연주 및 Web Audio 사운드 재생 스튜디오">
+
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- OpenSheetMusicDisplay (OSMD) -->
+  <script src="https://unpkg.com/opensheetmusicdisplay@1.8.8/build/opensheetmusicdisplay.min.js"></script>
+
+  <!-- Soundfont-Player CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script>
+
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- ==================== TOP NAVIGATION ==================== -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo-group">
+        <span class="logo-icon">🎹</span>
+        <div class="logo-text">
+          <h1>AI-STEAM <span class="badge-version">v2.0</span></h1>
+          <p class="logo-sub">인터랙티브 AI 악보 에디터 &amp; OMR 스튜디오</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-center">
+      <!-- ⚡ 원클릭 자동 진행 토글 스위치 -->
+      <div class="auto-pipeline-toggle" title="토글 활성화 시 파일 업로드만으로 전처리, OMR, 최적화, 렌더링이 연속 실행됩니다.">
+        <label class="switch-container">
+          <input type="checkbox" id="toggle-auto-pipeline" checked>
+          <span class="switch-slider"></span>
+        </label>
+        <span class="toggle-label">
+          <span class="auto-icon">⚡</span>
+          <strong>원클릭 자동 진행</strong>
+          <span class="mode-badge" id="auto-mode-badge">ON (자동)</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <button class="btn btn-secondary" id="btn-load-demo" title="오른손/왼손 대보표 피아노 4마디 데모 악보를 불러옵니다.">
+        <span class="btn-icon">🎵</span> 데모 악보 불러오기
+      </button>
+      <button class="btn btn-icon-only" id="btn-theme-toggle" title="다크/라이트 테마 전환">
+        <span id="theme-icon">🌙</span>
+      </button>
+      <button class="btn btn-icon-only" id="btn-help-modal" title="단축키 및 도움말">
+        <span>❓</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ==================== MAIN WORKSPACE ==================== -->
+  <main class="main-container">
+    <!-- PIPELINE 3-COLUMN CARDS -->
+    <section class="pipeline-section">
+      <div class="pipeline-grid">
+        <!-- CARD 1: Upload & Preprocess -->
+        <div class="card pipeline-card" id="card-preprocess">
+          <div class="card-header">
+            <span class="step-num">1</span>
+            <h3>이미지/PDF 업로드 &amp; 전처리</h3>
+            <span class="status-indicator" id="status-preprocess">대기 중</span>
+          </div>
+          <div class="card-body">
+            <div class="dropzone" id="dropzone">
+              <input type="file" id="file-input" accept="image/png, image/jpeg, image/jpg, application/pdf" class="file-input-hidden">
+              <div class="dropzone-prompt" id="dropzone-prompt">
+                <span class="upload-icon">📁</span>
+                <p>악보 이미지(PNG, JPG) 또는 PDF를<br>드래그하거나 <strong>클릭하여 업로드</strong></p>
+                <span class="sub-hint">권장: 오선지가 수평에 가깝고 선명한 이미지</span>
+              </div>
+              <div class="preview-box hidden" id="preview-box">
+                <img id="img-preview" alt="악보 미리보기" src="" />
+                <button class="btn-clear-preview" id="btn-clear-preview" title="이미지 제거">✕</button>
+              </div>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-primary w-100" id="btn-preprocess" disabled>
+                <span>⚙️</span> 전처리 실행 (Preprocess)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD 2: AI OMR Extraction -->
+        <div class="card pipeline-card" id="card-extract">
+          <div class="card-header">
+            <span class="step-num">2</span>
+            <h3>AI 악보 인식 (oemer OMR)</h3>
+            <span class="status-indicator" id="status-extract">대기 중</span>
+          </div>
+          <div class="card-body">
+            <div class="omr-mode-selector">
+              <label class="radio-label">
+                <input type="radio" name="omr_mode" value="fast" checked>
+                <span>⚡ 빠름 (Fast)</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="omr_mode" value="deep">
+                <span>🔬 정밀 (Deep CLAHE)</span>
+              </label>
+            </div>
+
+            <!-- OMR Progress bar -->
+            <div class="progress-wrapper">
+              <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="omr-progress-bar" style="width: 0%;"></div>
+              </div>
+              <div class="progress-labels">
+                <span id="omr-progress-text">대기 중...</span>
+                <span id="omr-percent-text">0%</span>
+              </div>
+            </div>
+
+            <!-- Live logs console -->
+            <div class="terminal-log-box" id="omr-logs">
+              <div class="log-entry system">[시스템] 악보 분석 대기 중...</div>
+            </div>
+
+            <div class="card-actions row-gap">
+              <button class="btn btn-primary flex-1" id="btn-extract" disabled>
+                <span>🧠</span> OMR 추출 실행
+              </button>
+              <button class="btn btn-danger hidden" id="btn-cancel-extract">
+                <span>⏹️</span> 취소
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD 3: Optimization & Theoretical Analysis -->
+        <div class="card pipeline-card" id="card-optimize">
+          <div class="card-header">
+            <span class="step-num">3</span>
+            <h3>규칙 교정 &amp; 음악 이론 분석</h3>
+            <span class="status-indicator" id="status-optimize">대기 중</span>
+          </div>
+          <div class="card-body">
+            <div class="analysis-grid">
+              <div class="analysis-pill">
+                <span class="pill-label">조표 (Key)</span>
+                <strong class="pill-val" id="val-key">-</strong>
+              </div>
+              <div class="analysis-pill">
+                <span class="pill-label">박자 (Meter)</span>
+                <strong class="pill-val" id="val-time">-</strong>
+              </div>
+              <div class="analysis-pill">
+                <span class="pill-label">마디 수</span>
+                <strong class="pill-val" id="val-measures">-</strong>
+              </div>
+              <div class="analysis-pill">
+                <span class="pill-label">음표 수</span>
+                <strong class="pill-val" id="val-notes">-</strong>
+              </div>
+              <div class="analysis-pill">
+                <span class="pill-label">보표 (Parts)</span>
+                <strong class="pill-val" id="val-parts">-</strong>
+              </div>
+            </div>
+
+            <div class="download-group">
+              <a href="#" class="btn btn-outline disabled" id="btn-dl-xml" download>
+                <span>📄</span> MusicXML 다운로드
+              </a>
+              <a href="#" class="btn btn-outline disabled" id="btn-dl-midi" download>
+                <span>🎹</span> MIDI 다운로드
+              </a>
+            </div>
+
+            <div class="card-actions row-gap">
+              <button class="btn btn-secondary flex-1" id="btn-optimize" disabled>
+                <span>✨</span> 자동 교정 실행
+              </button>
+              <button class="btn btn-accent flex-1" id="btn-render" disabled>
+                <span>🎼</span> 악보 렌더링
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== INTERACTIVE SCORE EDITOR SECTION ==================== -->
+    <section class="editor-section card" id="editor-section">
+      <!-- 1. Playback & Master Bar -->
+      <div class="editor-topbar">
+        <div class="playback-controls">
+          <button class="btn btn-play" id="btn-play-pause" title="재생 / 일시정지 (스페이스바)">
+            <span id="play-icon">▶</span> <span id="play-text">재생</span>
+          </button>
+          <button class="btn btn-icon-only" id="btn-stop" title="정지 및 커서 처음으로">
+            <span>⏹</span>
+          </button>
+
+          <div class="control-group">
+            <label for="input-bpm">템포 (BPM):</label>
+            <input type="range" id="slider-bpm" min="40" max="200" value="100" class="slider-sm">
+            <input type="number" id="input-bpm" min="40" max="200" value="100" class="num-input-sm">
+          </div>
+
+          <div class="control-group">
+            <label for="slider-volume">볼륨:</label>
+            <input type="range" id="slider-volume" min="0" max="100" value="85" class="slider-sm">
+          </div>
+
+          <div class="control-group">
+            <label class="checkbox-inline">
+              <input type="checkbox" id="toggle-soundfont" checked>
+              <span>Acoustic Grand SoundFont</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="osmd-zoom-controls">
+          <button class="btn btn-icon-only btn-sm" id="btn-zoom-out" title="축소">🔍-</button>
+          <span id="zoom-level-text">100%</span>
+          <button class="btn btn-icon-only btn-sm" id="btn-zoom-in" title="확대">🔍+</button>
+          <button class="btn btn-icon-only btn-sm" id="btn-zoom-reset" title="원래 크기">↺</button>
+        </div>
+      </div>
+
+      <!-- 2. Staff Switcher & Edit Mode Toggle -->
+      <div class="editor-subbar">
+        <div class="staff-switcher-group">
+          <span class="subbar-label">편집 대상 보표:</span>
+          <div class="btn-group" role="group">
+            <button class="btn btn-part active" id="btn-part-rh" data-part="0">
+              🎼 오른손 (주선율 RH)
+            </button>
+            <button class="btn btn-part" id="btn-part-lh" data-part="1">
+              🎹 왼손 (반주 LH)
+            </button>
+          </div>
+          <span class="current-part-badge" id="current-part-indicator">Part 0 타겟팅</span>
+        </div>
+
+        <div class="edit-mode-toggle-group">
+          <button class="btn btn-outline" id="btn-toggle-edit-mode">
+            <span id="edit-mode-icon">✏️</span> <span id="edit-mode-text">수정 모드 켜기</span>
+          </button>
+          <div class="history-group">
+            <button class="btn btn-icon-only btn-sm" id="btn-undo" title="실행 취소 (Ctrl+Z)" disabled>↶ Undo</button>
+            <button class="btn btn-icon-only btn-sm" id="btn-redo" title="다시 실행 (Ctrl+Y)" disabled>↷ Redo</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Editing Palette (Disabled/Blurred when edit mode is OFF) -->
+      <div class="editor-palette disabled-palette" id="editor-palette">
+        <!-- Selection Info Display -->
+        <div class="palette-row selection-info-bar">
+          <span class="info-badge">선택 정보</span>
+          <span class="selection-text" id="selected-note-display">악보 위의 음표를 클릭하여 선택하세요.</span>
+          <span class="chord-indicator hidden" id="chord-badge">Shift 눌림: 화음 쌓기 모드</span>
+        </div>
+
+        <!-- Tool Groups -->
+        <div class="palette-row tools-wrapper">
+          <!-- Group A: Pitch & Clef Adjustments -->
+          <div class="tool-group">
+            <span class="tool-group-title">피치/옥타브</span>
+            <div class="tool-buttons">
+              <button class="btn btn-palette" id="btn-pitch-up" title="반음 올리기 (↑)">↑ 반음</button>
+              <button class="btn btn-palette" id="btn-pitch-down" title="반음 내리기 (↓)">↓ 반음</button>
+              <button class="btn btn-palette" id="btn-oct-up" title="옥타브 올리기">▲ 8va</button>
+              <button class="btn btn-palette" id="btn-oct-down" title="옥타브 내리기">▼ 8vb</button>
+              <button class="btn btn-palette" id="btn-acc-sharp" title="올림표 (#)">♯</button>
+              <button class="btn btn-palette" id="btn-acc-flat" title="내림표 (b)">♭</button>
+              <button class="btn btn-palette" id="btn-acc-natural" title="제자리표 (Natural)">♮</button>
+            </div>
+          </div>
+
+          <!-- Group B: Durations & Rest -->
+          <div class="tool-group">
+            <span class="tool-group-title">음길이 (박자)</span>
+            <div class="tool-buttons duration-buttons">
+              <button class="btn btn-palette" data-duration="4.0" title="온음표 (Whole)">𝅝 1/1</button>
+              <button class="btn btn-palette" data-duration="2.0" title="2분음표 (Half)">𝅗𝅥 1/2</button>
+              <button class="btn btn-palette active-duration" data-duration="1.0" title="4분음표 (Quarter)">𝅘𝅥 1/4</button>
+              <button class="btn btn-palette" data-duration="0.5" title="8분음표 (8th)">𝅘𝅥𝅯 1/8</button>
+              <button class="btn btn-palette" data-duration="0.25" title="16분음표 (16th)">𝅘𝅥𝅰 1/16</button>
+              <button class="btn btn-palette" id="btn-dotted" title="점음표 (.5x)">• 점(Dot)</button>
+            </div>
+          </div>
+
+          <!-- Group C: Chord & Rest / Delete -->
+          <div class="tool-group">
+            <span class="tool-group-title">변환 / 삭제</span>
+            <div class="tool-buttons">
+              <button class="btn btn-palette" id="btn-make-rest" title="쉼표로 변환 (REST)">𝄽 쉼표</button>
+              <button class="btn btn-palette btn-danger-soft" id="btn-delete-note" title="음표 삭제 (Del)">🗑️ 삭제</button>
+              <button class="btn btn-palette" id="btn-chord-toggle" title="화음 쌓기 토글 (Shift+Click)">🎼 화음 쌓기</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. OpenSheetMusicDisplay (OSMD) Container -->
+      <div class="sheet-viewport" id="sheet-viewport">
+        <div id="osmd-container" class="osmd-canvas-container"></div>
+        <div class="sheet-placeholder" id="sheet-placeholder">
+          <span class="music-icon-lg">🎼</span>
+          <p>악보가 렌더링되면 이곳에 인터랙티브 악보와 연주 커서가 표시됩니다.</p>
+          <span class="sub-hint">우측 상단 <strong>[데모 악보 불러오기]</strong> 버튼을 눌러 즉시 시작해 보세요!</span>
+        </div>
+      </div>
+
+      <!-- 5. 61-Key Virtual Piano Roll (C2 to C7) -->
+      <div class="piano-roll-container">
+        <div class="piano-roll-header">
+          <span class="piano-title">🎹 61건반 인터랙티브 피아노 롤 (C2 ~ C7)</span>
+          <span class="piano-hint">건반을 클릭하여 선택한 음표의 피치를 바꾸거나, <strong>Shift 키를 누른 채 클릭</strong>하여 화음을 쌓을 수 있습니다.</span>
+        </div>
+        <div class="piano-keyboard-wrapper">
+          <div class="piano-keyboard" id="piano-keyboard">
+            <!-- 61 keys dynamically generated via JavaScript -->
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ==================== SHORTCUTS HELP MODAL ==================== -->
+  <div class="modal-backdrop hidden" id="help-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>⌨️ 단축키 및 사용 안내</h3>
+        <button class="btn-close" id="btn-close-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <table class="shortcuts-table">
+          <thead>
+            <tr><th>기능</th><th>단축키</th><th>설명</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>재생 / 일시정지</strong></td><td><kbd>Space</kbd></td><td>실시간 사운드 재생 토글</td></tr>
+            <tr><td><strong>피치 직접 입력</strong></td><td><kbd>C</kbd> ~ <kbd>B</kbd></td><td>선택된 음표의 음이름 즉시 변경</td></tr>
+            <tr><td><strong>화음 쌓기</strong></td><td><kbd>Shift</kbd> + 건반/단축키</td><td>기존 음표에 새 음정 추가(Chord 구성)</td></tr>
+            <tr><td><strong>반음 올림 / 내림</strong></td><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>반음 단위 조 옮김</td></tr>
+            <tr><td><strong>옥타브 올림 / 내림</strong></td><td><kbd>PageUp</kbd> / <kbd>PageDown</kbd></td><td>12반음(1옥타브) 단위 이동</td></tr>
+            <tr><td><strong>음길이 변경</strong></td><td><kbd>1</kbd>, <kbd>2</kbd>, <kbd>4</kbd>, <kbd>8</kbd>, <kbd>6</kbd></td><td>온음표~16분음표 선택</td></tr>
+            <tr><td><strong>쉼표 변환 / 삭제</strong></td><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>현재 음표를 안전하게 쉼표로 치환</td></tr>
+            <tr><td><strong>실행 취소 / 재실행</strong></td><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd></td><td>최대 20단계 스냅샷 복원</td></tr>
+            <tr><td><strong>음표 이동</strong></td><td><kbd>→</kbd> / <kbd>←</kbd></td><td>다음 / 이전 음표로 커서 이동</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <footer class="app-footer">
+    <p>AI-STEAM Interactive Sheet Music Studio &bull; Powered by FastAPI, music21, oemer &amp; OpenSheetMusicDisplay</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

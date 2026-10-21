@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environments
+env/
+venv/
+.venv/
+ENV/
+
+# AI-STEAM OMR Caches (Ignore user uploads, preserve default demo assets)
+omr_cache/*
+!omr_cache/demo.musicxml
+!omr_cache/demo_opt.musicxml
+!omr_cache/demo.mid
+
+# Logs & Temporary files
+*.log
+tmp/
+temp/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Previous unrelated research scratch files
+connectome_*
+distortion_*
+figure_*
+interactive_connectome_*
+metric_*
+metrics_*
+spearman_*
+topological_*
