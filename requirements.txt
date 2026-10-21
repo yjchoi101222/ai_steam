@@ -4,6 +4,6 @@ music21>=9.1.0
 opencv-python>=4.8.0
 Pillow>=10.0.0
 PyMuPDF>=1.23.0
-oemer>=0.1.7
+oemer
 numpy>=1.24.0
 pydantic>=2.0.0
