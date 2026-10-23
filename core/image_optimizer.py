@@ -14,8 +14,8 @@ class SheetMusicOptimizer:
     4. 언샤프 마스킹(선명화) 및 배경 노이즈 제거
     """
 
-    def __init__(self, target_width: int = 800):
-        # Render 무료 플랜(512MB RAM) 방어를 위해 1350 -> 800px로 축소
+    def __init__(self, target_width: int = 1350):
+        # U-Net ConvTranspose ShapeInferenceError 방지: 1350px 복구
         self.target_width = target_width
 
     def optimize(self, image_bytes: bytes) -> bytes:

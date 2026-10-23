@@ -112,8 +112,8 @@ async def preprocess(file: UploadFile = File(...)):
         content = await file.read()
         if not content:
             raise HTTPException(status_code=400, detail="업로드된 파일 내용이 비어있습니다.")
-        # Render 512MB RAM OOM 방지: 리사이즈 폭 800px 강제 (optimizer target_width=800)
-        result = pipeline.preprocess_image(content, file.filename, target_width=800)
+        # U-Net ConvTranspose ShapeInferenceError 방지: 1350px 해상도 사용
+        result = pipeline.preprocess_image(content, file.filename, target_width=1350)
         return {
             "status": "success",
             "file_hash": result["file_hash"],

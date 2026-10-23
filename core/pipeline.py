@@ -63,7 +63,7 @@ class SheetMusicAnalyzerPipeline:
                 shutil.copy2(default_src, cache_raw)
                 shutil.copy2(default_src, cache_opt)
 
-    def preprocess_image(self, image_bytes: bytes, filename: str, target_width: int = 800) -> Dict[str, Any]:
+    def preprocess_image(self, image_bytes: bytes, filename: str, target_width: int = 1350) -> Dict[str, Any]:
         """[1단계] 업로드된 악보 이미지(또는 PDF 첫 페이지)를 전처리합니다."""
         if filename.lower().endswith(".pdf"):
             try:
@@ -80,7 +80,7 @@ class SheetMusicAnalyzerPipeline:
         file_hash = hashlib.sha256(image_bytes).hexdigest()
         cache_img_path = os.path.join(self.cache_dir, f"{file_hash}.png")
 
-        # Render 512MB RAM OOM 방지: 800px 적용
+        # U-Net ConvTranspose 호환 해상도(1350px) 적용
         optimizer = SheetMusicOptimizer(target_width=target_width)
         optimized_image_bytes = optimizer.optimize(image_bytes)
         with open(cache_img_path, "wb") as f:
@@ -503,8 +503,8 @@ class SheetMusicAnalyzerPipeline:
         try:
             from PIL import Image
             img = Image.open(io.BytesIO(image_bytes))
-            # Render 512MB RAM OOM 방지: 최대 해상도를 800px로 제한
-            max_dim = 800
+            # U-Net ConvTranspose ShapeInferenceError 방지: 1350px(fast) / 1800px(deep)
+            max_dim = 1800 if mode == "deep" else 1350
             w, h = img.size
             if max(w, h) > max_dim:
                 if progress_callback:
