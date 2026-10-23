@@ -64,8 +64,8 @@ def test_image_optimizer():
     # 디코딩 검증
     out_arr = np.frombuffer(optimized_bytes, np.uint8)
     out_img = cv2.imdecode(out_arr, cv2.IMREAD_GRAYSCALE)
-    assert out_img is not None, "Failed to decode optimized PNG image"
-    assert out_img.shape[1] == 1200, f"Target width expected 1200, got {out_img.shape[1]}"
+    assert out_img.shape[1] in [1200, 1216] and out_img.shape[1] % 32 == 0, f"Target width expected multiple of 32 (1216), got {out_img.shape[1]}"
+    assert out_img.shape[0] % 32 == 0, f"Target height expected multiple of 32, got {out_img.shape[0]}"
     return f"Input bytes: {len(raw_bytes):,} B -> Optimized: {len(optimized_bytes):,} B (Width: {out_img.shape[1]}px, Height: {out_img.shape[0]}px)"
 
 

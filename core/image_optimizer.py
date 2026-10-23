@@ -5,6 +5,28 @@ from PIL import Image
 from typing import Tuple, Optional
 
 
+def pad_to_multiple(image: np.ndarray, multiple: int = 32) -> np.ndarray:
+    """
+    U-Net ConvTranspose 음수 패딩 오류 방지:
+    이미지의 높이와 너비를 32의 배수로 맞추기 위해 흰색 여백(255)을 덧댑니다.
+    """
+    h, w = image.shape[:2]
+    new_h = ((h + multiple - 1) // multiple) * multiple
+    new_w = ((w + multiple - 1) // multiple) * multiple
+
+    pad_bottom = new_h - h
+    pad_right = new_w - w
+
+    if pad_bottom > 0 or pad_right > 0:
+        # 단색 또는 3채널 이미지 모두 대응
+        value = (255, 255, 255) if len(image.shape) == 3 else 255
+        image = cv2.copyMakeBorder(
+            image, 0, pad_bottom, 0, pad_right,
+            cv2.BORDER_CONSTANT, value=value
+        )
+    return image
+
+
 class SheetMusicOptimizer:
     """
     악보 이미지 전처리 모듈:
@@ -32,7 +54,7 @@ class SheetMusicOptimizer:
         # 1. 기울기 보정 (Deskew)
         deskewed = self._deskew(img)
 
-        # 2. 해상도 최적화 (너비 기준 리사이징)
+        # 2. 해상도 최적화 (너비 기준 리사이징 및 32의 배수 패딩)
         resized = self._resize_to_target_width(deskewed, self.target_width)
 
         # 3. 그레이스케일 변환 및 CLAHE 적응형 대비 강화
@@ -46,8 +68,11 @@ class SheetMusicOptimizer:
         # 5. 미세 잡음 제거 및 배경 화이트닝
         cleaned = self._clean_background(sharpened)
 
-        # 6. PNG 포맷으로 인코딩
-        _, encoded_img = cv2.imencode(".png", cleaned, [cv2.IMWRITE_PNG_COMPRESSION, 4])
+        # 6. U-Net ConvTranspose 호환을 위한 32의 배수 최종 패딩
+        final_img = pad_to_multiple(cleaned, multiple=32)
+
+        # 7. PNG 포맷으로 인코딩
+        _, encoded_img = cv2.imencode(".png", final_img, [cv2.IMWRITE_PNG_COMPRESSION, 4])
         return encoded_img.tobytes()
 
     def _deskew(self, img: np.ndarray) -> np.ndarray:
@@ -98,14 +123,14 @@ class SheetMusicOptimizer:
             return img
 
     def _resize_to_target_width(self, img: np.ndarray, target_w: int) -> np.ndarray:
-        """종횡비를 유지하며 target_width에 맞게 보간합니다."""
+        """종횡비를 유지하며 target_width에 맞게 보간하고 32의 배수로 패딩합니다."""
         h, w = img.shape[:2]
-        if w == target_w:
-            return img
-        scale = float(target_w) / float(w)
-        target_h = int(round(h * scale))
-        interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LANCZOS4
-        return cv2.resize(img, (target_w, target_h), interpolation=interpolation)
+        if w != target_w:
+            scale = float(target_w) / float(w)
+            target_h = int(round(h * scale))
+            interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LANCZOS4
+            img = cv2.resize(img, (target_w, target_h), interpolation=interpolation)
+        return pad_to_multiple(img, multiple=32)
 
     def _unsharp_mask(self, gray: np.ndarray, sigma: float = 1.0, strength: float = 1.5) -> np.ndarray:
         """가우시안 블러를 이용한 고주파 강조(언샤프 마스크)"""

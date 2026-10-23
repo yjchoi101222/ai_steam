@@ -501,7 +501,7 @@ class SheetMusicAnalyzerPipeline:
     ) -> Tuple[str, str]:
         """oemer 엔진을 서브프로세스로 실행하여 MusicXML을 추출합니다."""
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps
             img = Image.open(io.BytesIO(image_bytes))
             # U-Net ConvTranspose ShapeInferenceError 방지: 1350px(fast) / 1800px(deep)
             max_dim = 1800 if mode == "deep" else 1350
@@ -510,7 +510,15 @@ class SheetMusicAnalyzerPipeline:
                 if progress_callback:
                     progress_callback(f"이미지 해상도 정규화({max_dim}px)...", 8)
                 scale = max_dim / float(max(w, h))
-                img = img.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+                img = img.resize((int(round(w * scale)), int(round(h * scale))), Image.Resampling.LANCZOS)
+
+            # U-Net ConvTranspose 음수 패딩 방지: 가로/세로를 32의 배수로 패딩
+            w, h = img.size
+            pad_w = ((w + 31) // 32) * 32 - w
+            pad_h = ((h + 31) // 32) * 32 - h
+            if pad_w > 0 or pad_h > 0:
+                img = ImageOps.expand(img, (0, 0, pad_w, pad_h), fill="white")
+
             img = img.convert("RGB")
             out_io = io.BytesIO()
             img.save(out_io, format="PNG")
