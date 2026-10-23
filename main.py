@@ -82,6 +82,13 @@ class RestoreScoreRequest(BaseModel):
 
 # ==================== REST API 라우터 ====================
 
+@app.get("/healthz")
+@app.get("/health")
+async def health_check():
+    """클라우드 배포(Render 등) 헬스체크 및 서비스 상태 확인 엔드포인트"""
+    return {"status": "healthy", "service": "ai-steam-omr", "version": "2.0.0"}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     """메인 웹 에디터 인터페이스를 반환합니다."""
@@ -243,4 +250,8 @@ async def get_cached_file(filename: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    # Render, Heroku 등 클라우드 환경에서는 PORT 환경 변수를 자동 할당합니다.
+    port = int(os.environ.get("PORT", 8000))
+    host = os.environ.get("HOST", "0.0.0.0")
+    uvicorn.run("main:app", host=host, port=port, reload=False)
+

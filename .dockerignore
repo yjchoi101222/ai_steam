@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.git
+.gitignore
+.env
+venv
+.venv
+omr_cache/*
+!omr_cache/demo.musicxml
+!omr_cache/demo_opt.musicxml
+!omr_cache/demo.mid
+test_backend_pipeline.py
+.DS_Store
+Thumbs.db

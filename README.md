@@ -4,6 +4,7 @@
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.9%20|%203.10%20|%203.11%20|%203.14-3776AB.svg?logo=python&logoColor=white)](https://python.org)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/yjchoi101222/ai_steam)
 [![music21](https://img.shields.io/badge/music21-9.1+-blue.svg)](https://web.mit.edu/music21/)
 [![oemer](https://img.shields.io/badge/oemer-OMR_AI-purple.svg)](https://github.com/BreezeWhite/oemer)
 [![OpenSheetMusicDisplay](https://img.shields.io/badge/OSMD-1.8.8-orange.svg)](https://opensheetmusicdisplay.org/)
@@ -85,7 +86,21 @@ graph TD
 
 ---
 
-## 🚀 빠른 시작 가이드 (Quick Start)
+## 🌐 클라우드 배포 (Render.com 무료 호스팅)
+
+외부 어디서든 접속 가능한 웹사이트로 배포할 수 있도록 설정이 완비되어 있습니다.
+
+### 원클릭 배포 (Deploy to Render)
+아래 버튼을 누르면 본 저장소의 `render.yaml`을 기반으로 Render 무료 웹 서비스가 즉시 생성됩니다:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/yjchoi101222/ai_steam)
+
+- **수동 배포 가이드**: 자세한 스크린샷 및 대시보드 설정 방법은 [DEPLOY_GUIDE.md](DEPLOY_GUIDE.md)를 참조하세요.
+- **Docker 컨테이너 지원**: 루트의 `Dockerfile`을 통해 Render Docker, Hugging Face Spaces(무료 16GB RAM), Fly.io 등 모든 컨테이너 클라우드에 즉시 배포 가능합니다.
+
+---
+
+## 🚀 로컬 빠른 시작 가이드 (Quick Start)
 
 ### 1. 저장소 복제 및 가상환경 설정
 ```bash

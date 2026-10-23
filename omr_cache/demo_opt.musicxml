@@ -4,11 +4,11 @@
   <work>
     <work-title>AI-STEAM Interactive Demo Score</work-title>
   </work>
-  <movement-title>demo_opt.musicxml</movement-title>
+  <movement-title>demo.musicxml</movement-title>
   <identification>
     <creator type="composer">AI-STEAM Piano Studio</creator>
     <encoding>
-      <encoding-date>2026-10-21</encoding-date>
+      <encoding-date>2026-10-23</encoding-date>
       <software>music21 v.10.5.0</software>
       <software>AI-STEAM MusicXML Generator</software>
       <supports element="beam" type="yes" />
@@ -26,11 +26,11 @@
     <score-part id="P1">
       <part-name>오른손 (주선율)</part-name>
       <part-abbreviation>RH</part-abbreviation>
-      <score-instrument id="Idecce5a11e52cc016d21891276411ded">
+      <score-instrument id="I6d1039a9e4ad803949f1ecbbb0a452c7">
         <instrument-name>Acoustic Grand Piano</instrument-name>
         <instrument-abbreviation>Pno</instrument-abbreviation>
       </score-instrument>
-      <midi-instrument id="Idecce5a11e52cc016d21891276411ded">
+      <midi-instrument id="I6d1039a9e4ad803949f1ecbbb0a452c7">
         <midi-channel>1</midi-channel>
         <midi-program>1</midi-program>
       </midi-instrument>
@@ -38,11 +38,11 @@
     <score-part id="P2">
       <part-name>왼손 (반주)</part-name>
       <part-abbreviation>LH</part-abbreviation>
-      <score-instrument id="I167b48361daeda73ea7bcf806fc02759">
+      <score-instrument id="Ief0a36331fa110e23070c4f9f5b7290e">
         <instrument-name>Acoustic Grand Piano</instrument-name>
         <instrument-abbreviation>Pno</instrument-abbreviation>
       </score-instrument>
-      <midi-instrument id="I167b48361daeda73ea7bcf806fc02759">
+      <midi-instrument id="Ief0a36331fa110e23070c4f9f5b7290e">
         <midi-channel>2</midi-channel>
         <midi-program>1</midi-program>
       </midi-instrument>
@@ -68,7 +68,10 @@
         </clef>
       </attributes>
       <note>
-        <rest />
+        <pitch>
+          <step>G</step>
+          <octave>4</octave>
+        </pitch>
         <duration>10080</duration>
         <type>quarter</type>
       </note>
@@ -193,6 +196,9 @@
         <duration>40320</duration>
         <type>whole</type>
       </note>
+      <barline location="right">
+        <bar-style>light-heavy</bar-style>
+      </barline>
     </measure>
   </part>
   <!--=========================== Part 2 ===========================-->
@@ -337,6 +343,9 @@
         <duration>40320</duration>
         <type>whole</type>
       </note>
+      <barline location="right">
+        <bar-style>light-heavy</bar-style>
+      </barline>
     </measure>
   </part>
 </score-partwise>
