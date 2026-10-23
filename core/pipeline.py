@@ -63,7 +63,7 @@ class SheetMusicAnalyzerPipeline:
                 shutil.copy2(default_src, cache_raw)
                 shutil.copy2(default_src, cache_opt)
 
-    def preprocess_image(self, image_bytes: bytes, filename: str) -> Dict[str, Any]:
+    def preprocess_image(self, image_bytes: bytes, filename: str, target_width: int = 800) -> Dict[str, Any]:
         """[1단계] 업로드된 악보 이미지(또는 PDF 첫 페이지)를 전처리합니다."""
         if filename.lower().endswith(".pdf"):
             try:
@@ -80,7 +80,8 @@ class SheetMusicAnalyzerPipeline:
         file_hash = hashlib.sha256(image_bytes).hexdigest()
         cache_img_path = os.path.join(self.cache_dir, f"{file_hash}.png")
 
-        optimizer = SheetMusicOptimizer(target_width=1800)
+        # Render 512MB RAM OOM 방지: 800px 적용
+        optimizer = SheetMusicOptimizer(target_width=target_width)
         optimized_image_bytes = optimizer.optimize(image_bytes)
         with open(cache_img_path, "wb") as f:
             f.write(optimized_image_bytes)
@@ -502,7 +503,8 @@ class SheetMusicAnalyzerPipeline:
         try:
             from PIL import Image
             img = Image.open(io.BytesIO(image_bytes))
-            max_dim = 1800 if mode == "deep" else 1350
+            # Render 512MB RAM OOM 방지: 최대 해상도를 800px로 제한
+            max_dim = 800
             w, h = img.size
             if max(w, h) > max_dim:
                 if progress_callback:
@@ -533,6 +535,13 @@ class SheetMusicAnalyzerPipeline:
             wrapper_path = os.path.join(temp_work_dir, "fast_oemer.py")
             with open(wrapper_path, "w", encoding="utf-8") as fw:
                 fw.write(f"""import os
+# Render 512MB RAM OOM 방지: 딥러닝/수치연산 단일 쓰레드 제한
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import sys
 import io
 import logging
@@ -575,14 +584,15 @@ except Exception as e:
     sys.exit(1)
 """)
             cmd = [sys.executable, wrapper_path]
-            max_threads = str(max(1, multiprocessing.cpu_count() - 1))
+            # Render 512MB RAM OOM 방지: 단일 쓰레드로 고정
+            max_threads = "1"
 
             env = os.environ.copy()
-            env["OMP_NUM_THREADS"] = max_threads
-            env["MKL_NUM_THREADS"] = max_threads
-            env["OPENBLAS_NUM_THREADS"] = max_threads
-            env["VECLIB_MAXIMUM_THREADS"] = max_threads
-            env["NUMEXPR_NUM_THREADS"] = max_threads
+            env["OMP_NUM_THREADS"] = "1"
+            env["MKL_NUM_THREADS"] = "1"
+            env["OPENBLAS_NUM_THREADS"] = "1"
+            env["VECLIB_MAXIMUM_THREADS"] = "1"
+            env["NUMEXPR_NUM_THREADS"] = "1"
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUTF8"] = "1"
             env["PYTHONLEGACYWINDOWSSTDIO"] = "0"

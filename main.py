@@ -1,4 +1,11 @@
 import os
+# Render 512MB RAM OOM 방지: 딥러닝/수치연산 단일 쓰레드 제한
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import sys
 import io
 from typing import Optional, Dict, Any
@@ -105,7 +112,8 @@ async def preprocess(file: UploadFile = File(...)):
         content = await file.read()
         if not content:
             raise HTTPException(status_code=400, detail="업로드된 파일 내용이 비어있습니다.")
-        result = pipeline.preprocess_image(content, file.filename)
+        # Render 512MB RAM OOM 방지: 리사이즈 폭 800px 강제 (optimizer target_width=800)
+        result = pipeline.preprocess_image(content, file.filename, target_width=800)
         return {
             "status": "success",
             "file_hash": result["file_hash"],
