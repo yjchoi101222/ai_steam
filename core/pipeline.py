@@ -637,6 +637,13 @@ class SheetMusicAnalyzerPipeline:
         # 1. U-Net 음수 패딩 오류 방지: 가로/세로 길이를 32의 배수 및 최소 1024px로 보정
         prepare_safe_oemer_image(tmp_img_path)
 
+        # 2. 모델 가중치(ONNX) 파일 존재 여부 확인 및 보장
+        try:
+            from download_models import ensure_checkpoints
+            ensure_checkpoints()
+        except Exception as e:
+            print(f"[Model Check Warning] 가중치 확인 중 예외: {e}")
+
         process = None
         try:
             if progress_callback:

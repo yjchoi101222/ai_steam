@@ -21,16 +21,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall -y onnxruntime-gpu || true && \
     pip install --no-cache-dir --force-reinstall --no-deps onnxruntime
 
-# [핵심 수정] 도커 이미지 빌드 시점에 oemer ONNX 모델 가중치 사전 다운로드
-RUN python -c "\
-import os, urllib.request, oemer.ete as ete; \
-from oemer import MODULE_PATH; \
-ete.download_checkponts() if hasattr(ete, 'download_checkponts') else (ete.download_checkpoints() if hasattr(ete, 'download_checkpoints') else None); \
-unet_path = os.path.join(MODULE_PATH, 'checkpoints', 'unet_big', 'model.onnx'); \
-assert os.path.exists(unet_path), 'ONNX Model download failed!'; \
-print('ONNX Models successfully baked into Docker image!')"
+# 도커 이미지 빌드 시점에 oemer ONNX 모델 가중치 사전 다운로드
+COPY download_models.py .
+RUN python download_models.py
 
 # 프로젝트 소스 복사
 COPY . .

@@ -76,7 +76,7 @@ git push origin main
 | **Region** | `Singapore` 또는 `Oregon` | 한국과 지연시간이 적은 싱가포르 권장 |
 | **Branch** | `main` | 배포할 기본 브랜치 |
 | **Runtime** | `Python` | Python 런타임 선택 |
-| **Build Command** | `./build.sh` | 또는 `pip install -r requirements.txt` |
+| **Build Command** | `bash build.sh` | 빌드 스크립트 실행 (`download_models.py` 자동 호출) |
 | **Start Command** | `uvicorn main:app --host 0.0.0.0 --port $PORT` | Uvicorn 서버 기동 |
 | **Instance Type** | `Free` (0.1 CPU, 512 MB RAM) | 무료 인스턴스 |
 
@@ -127,7 +127,19 @@ git push origin main
 
 ---
 
-## 6. 대안 무료 호스팅 플랫폼 안내
+## 6. Render.com 자주 발생하는 오류 및 해결법 (Troubleshooting)
+
+| 증상 및 오류 메시지 | 근본 원인 | 해결 방법 |
+| :--- | :--- | :--- |
+| **`urllib.error.HTTPError: HTTP Error 404`** (빌드 실패) | 이전 `build.sh`에서 존재하지 않는 `.pkl` 가중치 URL 요청 | ✅ 신규 `download_models.py` 스크립트로 실제 ONNX 모델만 직접 다운로드하도록 수정 완료 |
+| **`bash: ./build.sh: Permission denied`** | Git 체크아웃 시 실행 권한 누락 | Build Command를 `./build.sh` 대신 **`bash build.sh`**로 설정 |
+| **`Exited with status 137` / 서버 급작스러운 재시작** | Render 무료 플랜의 **512MB RAM 초과 (OOM Crash)** | 1. 변환 시 **Fast 모드** 사용<br>2. 또는 RAM 16GB 무료인 **Hugging Face Spaces** 사용 |
+| **`Bad Gateway (502)` 또는 첫 접속 지연** | 무료 플랜 15분 미접속 후 슬립 모드(Spin Down) | UptimeRobot으로 10분 주기 `/healthz` 핑 설정 또는 50초 대기 후 새로고침 |
+| **`Health Check Failed`** | 포트 바인딩 불일치 또는 헬스체크 타임아웃 | Render가 주입하는 `$PORT` 자동 수신 및 `/healthz` 엔드포인트 제공으로 해결됨 |
+
+---
+
+## 7. 대안 무료 호스팅 플랫폼 안내
 
 만약 OMR AI 연산에 더 큰 메모리가 필요하거나 다른 무료 플랫폼을 함께 쓰고 싶다면 다음 옵션을 고려할 수 있습니다:
 
@@ -137,3 +149,4 @@ git push origin main
 
 ### 2) Railway.app / Fly.io
 - Docker 컨테이너 기반 초고속 배포 및 낮은 대기 시간 지원.
+
