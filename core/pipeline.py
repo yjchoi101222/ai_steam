@@ -48,19 +48,6 @@ def prepare_safe_oemer_image(img_path: str):
         cv2.imwrite(img_path, resized)
 
 
-def get_fallback_musicxml_path(base_dir: str) -> str:
-    """OMR 실패 시 서비스 중단을 방지하기 위한 데모 MusicXML 파일 경로 반환"""
-    candidates = [
-        os.path.join(base_dir, "omr_cache", "demo.musicxml"),
-        os.path.join(base_dir, "omr_cache", "demo_opt.musicxml"),
-        os.path.join(base_dir, "static", "default.musicxml"),
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    return ""
-
-
 def run_omr_protected(
     img_path: str,
     output_xml_path: str,
@@ -71,42 +58,33 @@ def run_omr_protected(
     timeout: int = 600
 ) -> str:
     """
-    Render 512MB OOM 방어형 OMR 실행기:
-    실제 oemer 인식을 우선 수행하여 인식된 악보를 저장하고,
-    메모리 폭주나 예외로 인해 파일이 생성되지 않은 경우에만 데모 악보로 안전 폴백합니다.
+    안전 격리형 OMR 실행기:
+    이미지 해상도 및 32배수 패딩 보정 후 oemer 인식을 수행합니다.
+    실패 시 데모 악보 폴백 없이 명확한 예외를 발생시켜 클라이언트가 재시도할 수 있도록 합니다.
     """
     prepare_safe_oemer_image(img_path)
     resolved_base_dir = base_dir or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     pipeline = SheetMusicAnalyzerPipeline(base_dir=resolved_base_dir)
 
-    try:
-        with open(img_path, "rb") as f:
-            img_bytes = f.read()
+    with open(img_path, "rb") as f:
+        img_bytes = f.read()
 
-        xml_filepath, temp_work_dir = pipeline._run_oemer(
-            image_bytes=img_bytes,
-            filename=os.path.basename(img_path),
-            mode=mode,
-            progress_callback=progress_callback,
-            cancel_check_callback=cancel_check_callback
-        )
+    xml_filepath, temp_work_dir = pipeline._run_oemer(
+        image_bytes=img_bytes,
+        filename=os.path.basename(img_path),
+        mode=mode,
+        progress_callback=progress_callback,
+        cancel_check_callback=cancel_check_callback
+    )
 
-        if os.path.exists(xml_filepath):
-            shutil.copy2(xml_filepath, output_xml_path)
-            opt_path = output_xml_path.replace(".musicxml", "_opt.musicxml")
-            shutil.copy2(xml_filepath, opt_path)
-            pipeline._cleanup_temp_file(temp_work_dir)
-            return output_xml_path
+    if os.path.exists(xml_filepath):
+        shutil.copy2(xml_filepath, output_xml_path)
+        opt_path = output_xml_path.replace(".musicxml", "_opt.musicxml")
+        shutil.copy2(xml_filepath, opt_path)
+        pipeline._cleanup_temp_file(temp_work_dir)
+        return output_xml_path
 
-    except Exception as e:
-        print(f"[Resource Guard] OMR processing encountered error: {e}")
-        print("[Resource Guard] Deploying cached fallback score to maintain service uptime...")
-
-        fallback_target = get_fallback_musicxml_path(resolved_base_dir)
-        if fallback_target:
-            shutil.copy2(fallback_target, output_xml_path)
-            opt_path = output_xml_path.replace(".musicxml", "_opt.musicxml")
-            shutil.copy2(fallback_target, opt_path)
+    raise RuntimeError("OMR 결과 MusicXML 파일이 생성되지 않았습니다.")
 
     return output_xml_path
 
@@ -136,15 +114,69 @@ class SheetMusicAnalyzerPipeline:
         # file_hash: {"undo": [xml_str, ...], "redo": [xml_str, ...]}
         self.history: Dict[str, Dict[str, List[str]]] = {}
 
-    def _ensure_demo_file(self):
-        """데모 악보 요청 시 캐시 폴더에 기본 악보가 없으면 복사"""
-        cache_opt = os.path.join(self.cache_dir, "demo_opt.musicxml")
-        cache_raw = os.path.join(self.cache_dir, "demo.musicxml")
-        if not os.path.exists(cache_opt) and not os.path.exists(cache_raw):
-            default_src = os.path.join(self.base_dir, "static", "default.musicxml")
-            if os.path.exists(default_src):
-                shutil.copy2(default_src, cache_raw)
-                shutil.copy2(default_src, cache_opt)
+    def create_blank_score(
+        self,
+        title: str = "새 악보",
+        time_signature: str = "4/4",
+        key_signature: str = "C",
+        measures_count: int = 4,
+        is_grand_staff: bool = True
+    ) -> Dict[str, Any]:
+        """
+        [데모 악보 없이 상시 동작 지원]
+        새로운 빈 악보(대보표 또는 단일 보표)를 동적으로 생성하여 캐시에 등록하고 즉시 편집 가능하도록 반환합니다.
+        """
+        score = m21.stream.Score()
+        score.metadata = m21.metadata.Metadata()
+        score.metadata.title = title
+
+        # Part 1: 오른손 (Treble)
+        p1 = m21.stream.Part(id="P1")
+        p1.partName = "Right Hand"
+
+        # Part 2: 왼손 (Bass)
+        p2 = m21.stream.Part(id="P2") if is_grand_staff else None
+        if p2:
+            p2.partName = "Left Hand"
+
+        ts = m21.meter.TimeSignature(time_signature)
+        ks = m21.key.Key(key_signature)
+
+        for m_num in range(1, measures_count + 1):
+            m1 = m21.stream.Measure(number=m_num)
+            if m_num == 1:
+                m1.append(m21.clef.TrebleClef())
+                m1.append(ks)
+                m1.append(ts)
+            r1 = m21.note.Rest(quarterLength=ts.barDuration.quarterLength)
+            m1.append(r1)
+            p1.append(m1)
+
+            if p2:
+                m2 = m21.stream.Measure(number=m_num)
+                if m_num == 1:
+                    m2.append(m21.clef.BassClef())
+                    m2.append(ks)
+                    m2.append(ts)
+                r2 = m21.note.Rest(quarterLength=ts.barDuration.quarterLength)
+                m2.append(r2)
+                p2.append(m2)
+
+        score.append(p1)
+        if p2:
+            score.append(p2)
+
+        file_hash = f"score_{uuid.uuid4().hex[:12]}"
+        cache_xml = os.path.join(self.cache_dir, f"{file_hash}.musicxml")
+        cache_opt = os.path.join(self.cache_dir, f"{file_hash}_opt.musicxml")
+
+        score.write("musicxml", fp=cache_xml)
+        shutil.copy2(cache_xml, cache_opt)
+
+        render_data = self.render_audio(file_hash)
+        render_data["file_hash"] = file_hash
+        render_data["filename"] = f"{title}.musicxml"
+        return render_data
 
     def preprocess_image(self, image_bytes: bytes, filename: str, target_width: int = 1350) -> Dict[str, Any]:
         """[1단계] 업로드된 악보 이미지(또는 PDF 첫 페이지)를 전처리합니다."""
@@ -285,21 +317,9 @@ class SheetMusicAnalyzerPipeline:
                     self.jobs[job_id]["status"] = "cancelled"
                     self.jobs[job_id]["message"] = "사용자에 의해 취소됨"
                 else:
-                    # 프로세스 실패 시 데모 악보 폴백을 적용해 웹 에디터 서비스가 중단되지 않도록 보호
-                    fallback_source = get_fallback_musicxml_path(self.base_dir)
-                    if fallback_source:
-                        print(f"[Warning] OMR failed: {e}. Activating Fallback: Copying demo.musicxml to prevent service crash...")
-                        cache_xml_path = os.path.join(self.cache_dir, f"{file_hash}.musicxml")
-                        shutil.copy2(fallback_source, cache_xml_path)
-                        opt_path = os.path.join(self.cache_dir, f"{file_hash}_opt.musicxml")
-                        shutil.copy2(fallback_source, opt_path)
-                        self.jobs[job_id]["status"] = "completed"
-                        self.jobs[job_id]["percent"] = 100
-                        self.jobs[job_id]["message"] = "MusicXML 추출 완료 (데모 악보 폴백 적용)"
-                    else:
-                        self.jobs[job_id]["status"] = "failed"
-                        self.jobs[job_id]["error"] = str(e)
-                        self.jobs[job_id]["message"] = f"추출 실패: {str(e)}"
+                    self.jobs[job_id]["status"] = "failed"
+                    self.jobs[job_id]["error"] = str(e)
+                    self.jobs[job_id]["message"] = f"악보 인식 실패: {str(e)}"
         finally:
             with self._lock:
                 if job_id in self.job_processes:
@@ -307,8 +327,6 @@ class SheetMusicAnalyzerPipeline:
 
     def optimize_xml(self, file_hash: str) -> bool:
         """[3단계] 추출된 MusicXML의 노이즈 제거 및 음악 규칙 교정을 수행합니다."""
-        if file_hash == "demo":
-            self._ensure_demo_file()
 
         cache_xml_path = os.path.join(self.cache_dir, f"{file_hash}.musicxml")
         cache_opt_xml_path = os.path.join(self.cache_dir, f"{file_hash}_opt.musicxml")
@@ -338,8 +356,6 @@ class SheetMusicAnalyzerPipeline:
 
     def render_audio(self, file_hash: str) -> Dict[str, Any]:
         """[4단계] 악보 메타데이터를 분석하고 재생/다운로드용 MIDI 파일을 생성합니다."""
-        if file_hash == "demo":
-            self._ensure_demo_file()
 
         cache_opt_xml_path = os.path.join(self.cache_dir, f"{file_hash}_opt.musicxml")
         cache_xml_path = os.path.join(self.cache_dir, f"{file_hash}.musicxml")
@@ -386,8 +402,6 @@ class SheetMusicAnalyzerPipeline:
         - 피치 변경, 쉼표(REST) 변환, 화음(Chord) 추가, 음길이(Duration) 변경, 반음/옥타브 전조 지원.
         - Undo/Redo 스택에 수정 전 상태 자동 기록.
         """
-        if file_hash == "demo":
-            self._ensure_demo_file()
 
         cache_opt_xml_path = os.path.join(self.cache_dir, f"{file_hash}_opt.musicxml")
         cache_xml_path = os.path.join(self.cache_dir, f"{file_hash}.musicxml")
@@ -764,11 +778,6 @@ except Exception as e:
             expected_xml_path = os.path.join(temp_work_dir, "input_sheet.musicxml")
 
             if return_code != 0:
-                print(f"[Warning] oemer failed (code: {return_code}). Activating Fallback: Copying demo.musicxml to prevent service crash...")
-                fallback_source = get_fallback_musicxml_path(self.base_dir)
-                if fallback_source:
-                    shutil.copy2(fallback_source, expected_xml_path)
-                    return expected_xml_path, temp_work_dir
                 raise RuntimeError(f"oemer 엔진 실행 오류 (반환 코드: {return_code})")
 
             if os.path.exists(expected_xml_path):
@@ -778,13 +787,6 @@ except Exception as e:
             if xml_files:
                 return xml_files[0], temp_work_dir
 
-            # 결과 파일이 생성되지 않은 경우에도 fallback 발동
-            print("[Warning] oemer produced no MusicXML. Activating Fallback: Copying demo.musicxml...")
-            fallback_source = get_fallback_musicxml_path(self.base_dir)
-            if fallback_source:
-                shutil.copy2(fallback_source, expected_xml_path)
-                return expected_xml_path, temp_work_dir
-
             raise RuntimeError("MusicXML 파일이 출력 디렉토리에 생성되지 않았습니다.")
 
         except subprocess.TimeoutExpired:
@@ -792,24 +794,12 @@ except Exception as e:
                 process.kill()
             if cancel_check_callback and cancel_check_callback():
                 raise RuntimeError("사용자에 의해 분석이 취소되었습니다.")
-            print("[Warning] oemer timeout expired. Activating Fallback: Copying demo.musicxml...")
-            expected_xml_path = os.path.join(temp_work_dir, "input_sheet.musicxml")
-            fallback_source = get_fallback_musicxml_path(self.base_dir)
-            if fallback_source:
-                shutil.copy2(fallback_source, expected_xml_path)
-                return expected_xml_path, temp_work_dir
             raise RuntimeError("악보 OMR 분석 시간 초과 (10분)")
         except Exception as e:
             if process and process.poll() is None:
                 process.kill()
             if cancel_check_callback and cancel_check_callback():
                 raise RuntimeError("사용자에 의해 분석이 취소되었습니다.")
-            print(f"[Error] Subprocess execution error: {e}. Activating Fallback: Copying demo.musicxml...")
-            expected_xml_path = os.path.join(temp_work_dir, "input_sheet.musicxml")
-            fallback_source = get_fallback_musicxml_path(self.base_dir)
-            if fallback_source:
-                shutil.copy2(fallback_source, expected_xml_path)
-                return expected_xml_path, temp_work_dir
             raise RuntimeError(f"oemer 분석 실패: {str(e)}")
 
     def _load_musicxml(self, filepath: str) -> Optional[m21.stream.Score]:

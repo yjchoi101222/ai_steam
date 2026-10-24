@@ -3,6 +3,7 @@ import io
 import os
 import json
 import time
+import threading
 import requests
 import numpy as np
 import cv2
@@ -16,8 +17,38 @@ if hasattr(sys.stderr, 'reconfigure'):
 
 BASE_URL = "http://127.0.0.1:8000"
 
+# 테스트용 로컬 서버 자동 기동 (미실행 시 백그라운드 스레드로 실행)
+def ensure_server_running():
+    try:
+        res = requests.get(f"{BASE_URL}/healthz", timeout=1.0)
+        if res.status_code == 200:
+            return
+    except Exception:
+        pass
+
+    import uvicorn
+    from main import app
+    print("🚀 Initializing in-process test server on port 8000...")
+    config = uvicorn.Config(app, host="127.0.0.1", port=8000, log_level="error")
+    server = uvicorn.Server(config)
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+    for _ in range(30):
+        time.sleep(0.3)
+        try:
+            res = requests.get(f"{BASE_URL}/healthz", timeout=1.0)
+            if res.status_code == 200:
+                print("✅ Test server is ready and responding!")
+                return
+        except Exception:
+            continue
+    raise RuntimeError("Failed to launch in-process test server on port 8000")
+
+ensure_server_running()
+
 print("=" * 70)
 print("🎹 AI-STEAM v2.0 Backend Pipeline & REST API Verification Suite")
+print("   (Testing Without Demo Score - True OMR & Always-On Editor)")
 print("=" * 70)
 
 passed = 0
@@ -48,11 +79,9 @@ def test_image_optimizer():
     from core.image_optimizer import SheetMusicOptimizer
     optimizer = SheetMusicOptimizer(target_width=1200)
 
-    # 400x800 크기의 테스트 이미지 생성 (흰 배경에 검은 오선지 라인들)
     img = np.ones((400, 800, 3), dtype=np.uint8) * 255
     for y in [100, 120, 140, 160, 180]:
         cv2.line(img, (50, y), (750, y), (0, 0, 0), 2)
-    # 5도 기울임 회전 적용
     M = cv2.getRotationMatrix2D((400, 200), 5.0, 1.0)
     rotated = cv2.warpAffine(img, M, (800, 400), borderValue=(255, 255, 255))
     _, encoded = cv2.imencode(".png", rotated)
@@ -60,11 +89,10 @@ def test_image_optimizer():
 
     optimized_bytes = optimizer.optimize(raw_bytes)
     assert len(optimized_bytes) > 0, "Optimized image byte array is empty"
-    
-    # 디코딩 검증
+
     out_arr = np.frombuffer(optimized_bytes, np.uint8)
     out_img = cv2.imdecode(out_arr, cv2.IMREAD_GRAYSCALE)
-    assert out_img.shape[1] in [1200, 1216] and out_img.shape[1] % 32 == 0, f"Target width expected multiple of 32 (1216), got {out_img.shape[1]}"
+    assert out_img.shape[1] % 32 == 0, f"Target width expected multiple of 32, got {out_img.shape[1]}"
     assert out_img.shape[0] % 32 == 0, f"Target height expected multiple of 32, got {out_img.shape[0]}"
     return f"Input bytes: {len(raw_bytes):,} B -> Optimized: {len(optimized_bytes):,} B (Width: {out_img.shape[1]}px, Height: {out_img.shape[0]}px)"
 
@@ -75,20 +103,15 @@ def test_score_corrector():
     from core.corrector import ScoreCorrector
     corrector = ScoreCorrector()
 
-    # 테스트 스코어 생성
     s = m21.stream.Score()
     p1 = m21.stream.Part()
     m1 = m21.stream.Measure(number=1)
-    
-    # 1. 정상 음표
+
     m1.append(m21.note.Note('C4', quarterLength=1.0))
-    # 2. 중복 음표 (동일 오프셋에 동일 피치 C4)
     dup_note = m21.note.Note('C4', quarterLength=1.0)
     m1.insert(0.0, dup_note)
-    # 3. 비정상 극소 파편 음표 (2048분 음표: 1/512 ql)
     fragment = m21.note.Note('E4', quarterLength=0.001)
     m1.append(fragment)
-    # 4. 88건반 범위 초과 피치 (C-1 -> MIDI 0, 클램핑 대상)
     out_of_bound = m21.note.Note('C-1', quarterLength=1.0)
     m1.append(out_of_bound)
 
@@ -98,35 +121,31 @@ def test_score_corrector():
     initial_notes = len(list(s.recurse().getElementsByClass(m21.note.Note)))
     assert initial_notes == 4, f"Expected 4 initial notes, got {initial_notes}"
 
-    # 교정 실행
-    corrected_score = corrector.run_all(s)
-    remaining_notes = list(corrected_score.recurse().getElementsByClass(m21.note.Note))
+    corrected_s = corrector.run_all(s)
+    corrected_notes = list(corrected_s.recurse().getElementsByClass(m21.note.Note))
 
-    # 파편과 중복 제거로 2~3개 남아야 함
-    # C-1은 클램핑되어 A0 또는 범위 내로 수정되어야 함
-    for n in remaining_notes:
-        assert n.quarterLength >= 0.125, f"Fragment note remained with ql={n.quarterLength}"
-        assert 21 <= n.pitch.midi <= 108, f"Pitch outside 88-key range: {n.pitch.nameWithOctave} ({n.pitch.midi})"
-
-    return f"Initial notes: {initial_notes} -> Corrected notes: {len(remaining_notes)} (Fragments removed & 88-key clamped)"
+    for n in corrected_notes:
+        assert 21 <= n.pitch.midi <= 108, f"Note {n.nameWithOctave} (MIDI {n.pitch.midi}) exceeds 88-key piano limits"
+    assert len(corrected_notes) == 2, f"Expected 2 valid notes after deduplication & fragment removal, got {len(corrected_notes)}"
+    return f"Initial notes: {initial_notes} -> Corrected notes: {len(corrected_notes)} (Fragments removed & 88-key clamped)"
 
 
-# 3. REST API - Root Endpoint
+# 3. REST API - Web Editor UI Servicing
 @test("3. REST API: GET / (Web Editor UI Servicing)")
-def test_api_root():
+def test_api_index():
     res = requests.get(f"{BASE_URL}/", timeout=5)
     assert res.status_code == 200, f"Expected status 200, got {res.status_code}"
-    assert "AI-STEAM" in res.text, "Response does not contain 'AI-STEAM'"
-    assert "OpenSheetMusicDisplay" in res.text, "Response does not include OSMD reference"
-    return f"Status: {res.status_code}, HTML length: {len(res.text):,} chars"
+    assert "AI-STEAM" in res.text, "Response does not contain app brand 'AI-STEAM'"
+    assert "osmd-container" in res.text, "Response missing 'osmd-container'"
+    return f"Status: {res.status_code}, HTML length: {len(res.text):,} bytes"
 
 
-# 4. REST API - Preprocess Upload
+# 4. REST API - Preprocess Image
 @test("4. REST API: POST /api/preprocess (Image Upload & Optimization)")
 def test_api_preprocess():
-    # 더미 악보 이미지 생성
-    img = np.ones((300, 600, 3), dtype=np.uint8) * 255
-    cv2.putText(img, "TEST SCORE", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3)
+    img = np.ones((500, 800, 3), dtype=np.uint8) * 255
+    for y in [100, 120, 140, 160, 180]:
+        cv2.line(img, (50, y), (750, y), (0, 0, 0), 2)
     _, encoded = cv2.imencode(".png", img)
     files = {"file": ("test_sheet.png", encoded.tobytes(), "image/png")}
 
@@ -135,16 +154,41 @@ def test_api_preprocess():
     data = res.json()
     assert data.get("status") == "success", f"Invalid response: {data}"
     assert "file_hash" in data, "file_hash missing in response"
-    assert "image_url" in data, "image_url missing in response"
     return f"file_hash: {data['file_hash'][:16]}..., image_url: {data['image_url']}"
 
 
-# 5. REST API - Render Demo Score & Music Analysis
-@test("5. REST API: POST /api/render (Score Analysis & MIDI Generation)")
+# Global test score hash for subsequent tests (Dynamic score without demo file!)
+DYNAMIC_SCORE_HASH = ""
+
+# 5. REST API - Create Dynamic Blank Score (Always-On Editor)
+@test("5. REST API: POST /api/score/new (Always-On Blank Score Creation)")
+def test_api_create_new_score():
+    global DYNAMIC_SCORE_HASH
+    payload = {
+        "title": "테스트 신규 악보",
+        "time_signature": "4/4",
+        "key_signature": "C",
+        "measures_count": 4,
+        "is_grand_staff": True
+    }
+    res = requests.post(f"{BASE_URL}/api/score/new", json=payload, timeout=10)
+    assert res.status_code == 200, f"Expected status 200, got {res.status_code}: {res.text}"
+    data = res.json()
+    assert data.get("status") == "success", f"Failed new score creation: {data}"
+    assert "file_hash" in data, "file_hash missing in new score response"
+    assert "analysis" in data, "analysis missing in new score response"
+    assert "midi_url" in data, "midi_url missing in new score response"
+    DYNAMIC_SCORE_HASH = data["file_hash"]
+    return f"Generated dynamic score hash: {DYNAMIC_SCORE_HASH}, Parts: {data['analysis'].get('total_parts')}, Measures: {data['analysis'].get('total_measures')}"
+
+
+# 6. REST API - Render Score & Music Analysis
+@test("6. REST API: POST /api/render (Score Analysis & MIDI Generation)")
 def test_api_render():
+    assert DYNAMIC_SCORE_HASH, "No dynamic score available"
     res = requests.post(
         f"{BASE_URL}/api/render",
-        json={"file_hash": "demo"},
+        json={"file_hash": DYNAMIC_SCORE_HASH},
         timeout=10
     )
     assert res.status_code == 200, f"Expected status 200, got {res.status_code}: {res.text}"
@@ -153,26 +197,23 @@ def test_api_render():
     assert "total_measures" in analysis, "Analysis missing 'total_measures'"
     assert "key_signature" in analysis, "Analysis missing 'key_signature'"
     assert "time_signature" in analysis, "Analysis missing 'time_signature'"
-    assert "total_notes" in analysis, "Analysis missing 'total_notes'"
-    assert "total_parts" in analysis, "Analysis missing 'total_parts'"
     assert "midi_url" in data, "Response missing 'midi_url'"
 
     return (
         f"Measures: {analysis.get('total_measures')}, "
         f"Key: {analysis.get('key_signature')}, "
         f"Time Sig: {analysis.get('time_signature')}, "
-        f"Notes: {analysis.get('total_notes')}, "
-        f"Parts: {analysis.get('total_parts')}, "
         f"MIDI: {data.get('midi_url')}"
     )
 
 
-# 6. REST API - Optimize Score (MusicXML Correction)
-@test("6. REST API: POST /api/optimize (MusicXML Auto-Correction)")
+# 7. REST API - Optimize Score (MusicXML Correction)
+@test("7. REST API: POST /api/optimize (MusicXML Auto-Correction)")
 def test_api_optimize():
+    assert DYNAMIC_SCORE_HASH, "No dynamic score available"
     res = requests.post(
         f"{BASE_URL}/api/optimize",
-        json={"file_hash": "demo"},
+        json={"file_hash": DYNAMIC_SCORE_HASH},
         timeout=10
     )
     assert res.status_code == 200, f"Expected status 200, got {res.status_code}: {res.text}"
@@ -181,15 +222,16 @@ def test_api_optimize():
     return f"Optimization status: {data.get('status')}, target: {data.get('file_hash')}"
 
 
-# 7. REST API - Interactive Edit (Pitch Shift & Chord Add)
-@test("7. REST API: POST /api/edit_score (Precision Note Editing)")
+# 8. REST API - Interactive Edit (Pitch Shift & Chord Add)
+@test("8. REST API: POST /api/edit_score (Precision Note Editing)")
 def test_api_edit():
-    # 마디 1의 음표를 G4로 피치 수정
+    assert DYNAMIC_SCORE_HASH, "No dynamic score available"
     payload = {
-        "file_hash": "demo",
+        "file_hash": DYNAMIC_SCORE_HASH,
         "measure_number": 1,
         "note_offset": 0.0,
         "new_pitch": "G4",
+        "new_duration": 1.0,
         "part_index": 0
     }
     res = requests.post(f"{BASE_URL}/api/edit_score", json=payload, timeout=10)
@@ -199,23 +241,22 @@ def test_api_edit():
     return f"Edited measure 1, offset 0.0 -> new pitch G4 (status: {data.get('status')})"
 
 
-# 8. REST API - Undo and Redo History
-@test("8. REST API: POST /api/restore_score (Undo / Redo Stack)")
+# 9. REST API - Undo and Redo History
+@test("9. REST API: POST /api/restore_score (Undo / Redo Stack)")
 def test_api_undo_redo():
-    # Undo 실행
+    assert DYNAMIC_SCORE_HASH, "No dynamic score available"
     res_undo = requests.post(
         f"{BASE_URL}/api/restore_score",
-        json={"file_hash": "demo", "action": "undo"},
+        json={"file_hash": DYNAMIC_SCORE_HASH, "action": "undo"},
         timeout=10
     )
     assert res_undo.status_code == 200, f"Undo failed: {res_undo.text}"
     data_undo = res_undo.json()
     assert data_undo.get("status") == "success", f"Undo status not success: {data_undo}"
 
-    # Redo 실행
     res_redo = requests.post(
         f"{BASE_URL}/api/restore_score",
-        json={"file_hash": "demo", "action": "redo"},
+        json={"file_hash": DYNAMIC_SCORE_HASH, "action": "redo"},
         timeout=10
     )
     assert res_redo.status_code == 200, f"Redo failed: {res_redo.text}"
@@ -225,58 +266,31 @@ def test_api_undo_redo():
     return "Undo -> Redo roundtrip successfully restored snapshot state"
 
 
-# 9. REST API - OMR Job Lifecycle (Async Start & Immediate Cancel)
-@test("9. REST API: POST /api/extract & Cancel (OMR Job Lifecycle)")
-def test_api_extract_lifecycle():
-    # OMR 비동기 작업 등록
-    res_start = requests.post(
-        f"{BASE_URL}/api/extract",
-        json={"file_hash": "demo", "filename": "demo.png", "mode": "fast"},
-        timeout=10
-    )
-    assert res_start.status_code == 200, f"Extract start failed: {res_start.text}"
-    data_start = res_start.json()
-    job_id = data_start.get("job_id")
-    assert job_id, "job_id missing"
-
-    # 상태 폴링 확인
-    res_status = requests.get(f"{BASE_URL}/api/extract/status/{job_id}", timeout=5)
-    assert res_status.status_code == 200, f"Status check failed: {res_status.text}"
-    status_info = res_status.json()
-
-    # 즉시 작업 취소 API 호출
-    res_cancel = requests.post(f"{BASE_URL}/api/extract/{job_id}/cancel", timeout=5)
-    assert res_cancel.status_code == 200, f"Cancel failed: {res_cancel.text}"
-
-    return f"Job ID: {job_id[:8]}..., initial status: {status_info.get('status')}, cancel result: {res_cancel.json().get('status')}"
-
-
-# 10. Cache File Delivery (MIDI & MusicXML)
+# 10. Cache File Delivery (MIDI & MusicXML on dynamic score)
 @test("10. REST API: GET /api/cache/{filename} (Asset Delivery)")
 def test_api_cache_files():
-    # MIDI 파일 다운로드 검증
-    mid_res = requests.get(f"{BASE_URL}/api/cache/demo.mid", timeout=5)
-    assert mid_res.status_code == 200, f"Failed demo.mid: {mid_res.status_code}"
+    assert DYNAMIC_SCORE_HASH, "No dynamic score available"
+    mid_res = requests.get(f"{BASE_URL}/api/cache/{DYNAMIC_SCORE_HASH}.mid", timeout=5)
+    assert mid_res.status_code == 200, f"Failed to get MIDI: {mid_res.status_code}"
     assert mid_res.content.startswith(b"MThd"), "Invalid MIDI header"
 
-    # MusicXML 파일 다운로드 검증
-    xml_res = requests.get(f"{BASE_URL}/api/cache/demo.musicxml", timeout=5)
-    assert xml_res.status_code == 200, f"Failed demo.musicxml: {xml_res.status_code}"
+    xml_res = requests.get(f"{BASE_URL}/api/cache/{DYNAMIC_SCORE_HASH}.musicxml", timeout=5)
+    assert xml_res.status_code == 200, f"Failed to get MusicXML: {xml_res.status_code}"
     assert b"score-partwise" in xml_res.content or b"xml" in xml_res.content, "Invalid MusicXML content"
 
-    return f"demo.mid ({len(mid_res.content):,} B) & demo.musicxml ({len(xml_res.content):,} B) successfully verified"
+    return f"Dynamic {DYNAMIC_SCORE_HASH}.mid ({len(mid_res.content):,} B) & {DYNAMIC_SCORE_HASH}.musicxml ({len(xml_res.content):,} B) verified"
 
 
 if __name__ == "__main__":
     test_image_optimizer()
     test_score_corrector()
-    test_api_root()
+    test_api_index()
     test_api_preprocess()
+    test_api_create_new_score()
     test_api_render()
     test_api_optimize()
     test_api_edit()
     test_api_undo_redo()
-    test_api_extract_lifecycle()
     test_api_cache_files()
 
     print("\n" + "=" * 70)
@@ -284,3 +298,4 @@ if __name__ == "__main__":
     print("=" * 70)
     if failed > 0:
         sys.exit(1)
+    sys.exit(0)

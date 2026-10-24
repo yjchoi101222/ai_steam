@@ -1050,7 +1050,67 @@ input:checked + .switch-slider:before {
   transform: translateY(2px);
 }
 
-/* ==================== MODAL & FOOTER ==================== */
+/* ==================== RETRY BOX COMPONENT ==================== */
+.retry-box {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  animation: fadeIn 0.3s ease;
+}
+
+.retry-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--accent-rose);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.retry-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.retry-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.btn-warning {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  border: none;
+}
+.btn-warning:hover {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+}
+
+/* ==================== PLACEHOLDER HERO ACTIONS ==================== */
+.placeholder-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.sheet-placeholder h3 {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  color: var(--text-main);
+  margin-bottom: 0.5rem;
+}
+
+/* ==================== MODAL & SITE USER MANUAL ==================== */
 .modal-backdrop {
   position: fixed;
   top: 0;
@@ -1070,11 +1130,18 @@ input:checked + .switch-slider:before {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  max-width: 580px;
+  max-width: 620px;
   width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   animation: modal-enter 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-box-large {
+  max-width: 820px;
 }
 
 @keyframes modal-enter {
@@ -1092,7 +1159,42 @@ input:checked + .switch-slider:before {
 
 .modal-header h3 {
   font-family: var(--font-display);
-  font-size: 1.1rem;
+  font-size: 1.15rem;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.modal-tabs {
+  display: flex;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.modal-tab-btn {
+  padding: 0.75rem 1.25rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.modal-tab-btn:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.modal-tab-btn.active {
+  color: var(--accent-cyan);
+  border-bottom-color: var(--accent-cyan);
+  background: rgba(56, 189, 248, 0.06);
 }
 
 .btn-close {
@@ -1102,9 +1204,89 @@ input:checked + .switch-slider:before {
   font-size: 1.2rem;
   cursor: pointer;
 }
+.btn-close:hover {
+  color: var(--text-main);
+}
 
 .modal-body {
   padding: 1.5rem;
+  overflow-y: auto;
+  max-height: calc(85vh - 120px);
+}
+
+.guide-panel {
+  display: none;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.guide-panel.active {
+  display: flex;
+  animation: fadeIn 0.25s ease;
+}
+
+.guide-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.guide-section h4 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  color: var(--accent-cyan);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.guide-section p, .guide-section li {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.guide-step-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.guide-step-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.guide-step-card .step-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  background: var(--accent-blue);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  width: fit-content;
+}
+
+.guide-step-card strong {
+  font-size: 0.95rem;
+  color: var(--text-main);
+}
+
+.guide-tip-callout {
+  padding: 0.85rem 1rem;
+  background: rgba(56, 189, 248, 0.08);
+  border-left: 3px solid var(--accent-cyan);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  font-size: 0.85rem;
+  color: var(--text-main);
+  line-height: 1.5;
 }
 
 .shortcuts-table {

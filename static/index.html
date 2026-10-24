@@ -48,14 +48,17 @@
     </div>
 
     <div class="header-right">
-      <button class="btn btn-secondary" id="btn-load-demo" title="오른손/왼손 대보표 피아노 4마디 데모 악보를 불러옵니다.">
-        <span class="btn-icon">🎵</span> 데모 악보 불러오기
+      <button class="btn btn-secondary" id="btn-new-score" title="데모 악보 없이 새로운 4마디 빈 악보를 생성하여 즉시 편집을 시작합니다.">
+        <span class="btn-icon">➕</span> 새 악보 만들기
+      </button>
+      <button class="btn btn-accent" id="btn-user-manual" title="사이트 사용 설명서 &amp; 가이드">
+        <span class="btn-icon">📖</span> 사용 설명서
       </button>
       <button class="btn btn-icon-only" id="btn-theme-toggle" title="다크/라이트 테마 전환">
         <span id="theme-icon">🌙</span>
       </button>
-      <button class="btn btn-icon-only" id="btn-help-modal" title="단축키 및 도움말">
-        <span>❓</span>
+      <button class="btn btn-icon-only" id="btn-help-modal" title="단축키 안내">
+        <span>⌨️</span>
       </button>
     </div>
   </header>
@@ -126,6 +129,23 @@
             <!-- Live logs console -->
             <div class="terminal-log-box" id="omr-logs">
               <div class="log-entry system">[시스템] 악보 분석 대기 중...</div>
+            </div>
+
+            <!-- Retry Container (displayed on OMR error) -->
+            <div class="retry-box hidden" id="omr-retry-box">
+              <div class="retry-header">
+                <span class="retry-icon">⚠️</span>
+                <strong>악보 인식에 실패했습니다.</strong>
+              </div>
+              <p class="retry-desc" id="retry-error-msg">오선지 검출 또는 모델 추론 중 오류가 발생했습니다.</p>
+              <div class="retry-actions">
+                <button class="btn btn-warning flex-1" id="btn-retry-extract" title="동일한 이미지로 OMR을 다시 시도합니다.">
+                  <span>🔄</span> 다시 시도 (Retry)
+                </button>
+                <button class="btn btn-outline flex-1" id="btn-switch-mode-retry" title="인식 모드를 전환(Fast ↔ Deep)하여 다시 시도합니다.">
+                  <span>🔀</span> 모드 전환 후 재시도
+                </button>
+              </div>
             </div>
 
             <div class="card-actions row-gap">
@@ -312,8 +332,19 @@
         <div id="osmd-container" class="osmd-canvas-container"></div>
         <div class="sheet-placeholder" id="sheet-placeholder">
           <span class="music-icon-lg">🎼</span>
-          <p>악보가 렌더링되면 이곳에 인터랙티브 악보와 연주 커서가 표시됩니다.</p>
-          <span class="sub-hint">우측 상단 <strong>[데모 악보 불러오기]</strong> 버튼을 눌러 즉시 시작해 보세요!</span>
+          <h3>AI 인터랙티브 악보 스튜디오에 오신 것을 환영합니다!</h3>
+          <p>악보 이미지(PNG, JPG)나 PDF를 업로드하여 AI로 인식하거나,<br>상단 <strong>[➕ 새 악보 만들기]</strong>를 눌러 빈 악보에서 자유롭게 작곡/편집을 시작하세요.</p>
+          <div class="placeholder-actions">
+            <button class="btn btn-primary" id="btn-hero-upload">
+              <span>📁</span> 악보 업로드하기
+            </button>
+            <button class="btn btn-secondary" id="btn-hero-new-score">
+              <span>➕</span> 새 빈 악보 만들기
+            </button>
+            <button class="btn btn-outline" id="btn-hero-manual">
+              <span>📖</span> 사이트 설명서 보기
+            </button>
+          </div>
         </div>
       </div>
 
@@ -332,30 +363,129 @@
     </section>
   </main>
 
-  <!-- ==================== SHORTCUTS HELP MODAL ==================== -->
-  <div class="modal-backdrop hidden" id="help-modal">
-    <div class="modal-box">
+  <!-- ==================== SITE USER MANUAL & SHORTCUTS MODAL ==================== -->
+  <div class="modal-backdrop hidden" id="guide-modal">
+    <div class="modal-box modal-box-large">
       <div class="modal-header">
-        <h3>⌨️ 단축키 및 사용 안내</h3>
-        <button class="btn-close" id="btn-close-modal">✕</button>
+        <h3>📖 AI-STEAM 악보 스튜디오 완벽 사용 설명서</h3>
+        <button class="btn-close" id="btn-close-guide">✕</button>
       </div>
+
+      <!-- Navigation Tabs -->
+      <div class="modal-tabs">
+        <button class="modal-tab-btn active" data-tab="tab-start">🚀 빠른 시작</button>
+        <button class="modal-tab-btn" data-tab="tab-omr">🧠 AI 악보 인식 &amp; 재시도</button>
+        <button class="modal-tab-btn" data-tab="tab-editor">🎹 인터랙티브 악보 수정</button>
+        <button class="modal-tab-btn" data-tab="tab-audio">🔊 사운드 재생 &amp; 내보내기</button>
+        <button class="modal-tab-btn" data-tab="tab-shortcuts">⌨️ 단축키 안내</button>
+      </div>
+
       <div class="modal-body">
-        <table class="shortcuts-table">
-          <thead>
-            <tr><th>기능</th><th>단축키</th><th>설명</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><strong>재생 / 일시정지</strong></td><td><kbd>Space</kbd></td><td>실시간 사운드 재생 토글</td></tr>
-            <tr><td><strong>피치 직접 입력</strong></td><td><kbd>C</kbd> ~ <kbd>B</kbd></td><td>선택된 음표의 음이름 즉시 변경</td></tr>
-            <tr><td><strong>화음 쌓기</strong></td><td><kbd>Shift</kbd> + 건반/단축키</td><td>기존 음표에 새 음정 추가(Chord 구성)</td></tr>
-            <tr><td><strong>반음 올림 / 내림</strong></td><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>반음 단위 조 옮김</td></tr>
-            <tr><td><strong>옥타브 올림 / 내림</strong></td><td><kbd>PageUp</kbd> / <kbd>PageDown</kbd></td><td>12반음(1옥타브) 단위 이동</td></tr>
-            <tr><td><strong>음길이 변경</strong></td><td><kbd>1</kbd>, <kbd>2</kbd>, <kbd>4</kbd>, <kbd>8</kbd>, <kbd>6</kbd></td><td>온음표~16분음표 선택</td></tr>
-            <tr><td><strong>쉼표 변환 / 삭제</strong></td><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>현재 음표를 안전하게 쉼표로 치환</td></tr>
-            <tr><td><strong>실행 취소 / 재실행</strong></td><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd></td><td>최대 20단계 스냅샷 복원</td></tr>
-            <tr><td><strong>음표 이동</strong></td><td><kbd>→</kbd> / <kbd>←</kbd></td><td>다음 / 이전 음표로 커서 이동</td></tr>
-          </tbody>
-        </table>
+        <!-- TAB 1: Quick Start -->
+        <div class="guide-panel active" id="tab-start">
+          <div class="guide-section">
+            <h4>🎯 3단계로 완성하는 스마트 악보 작업</h4>
+            <p>AI-STEAM은 인공지능 컴퓨터 비전(OMR)과 음악 이론 알고리즘을 결합하여, 스캔된 악보를 손쉽게 디지털 악보로 변환하고 직접 교정·연주할 수 있는 올인원 웹 스튜디오입니다.</p>
+          </div>
+
+          <div class="guide-step-grid">
+            <div class="guide-step-card">
+              <span class="step-badge">STEP 1</span>
+              <strong>1. 악보 업로드 &amp; 전처리</strong>
+              <p>PNG, JPG 이미지나 PDF 파일을 업로드합니다. 자동 수평 회전 및 고해상도 리사이징이 즉시 적용됩니다.</p>
+            </div>
+            <div class="guide-step-card">
+              <span class="step-badge">STEP 2</span>
+              <strong>2. AI 악보 인식 (OMR)</strong>
+              <p>oemer 딥러닝 신경망이 오선지, 음표, 조표, 박자표를 감지하여 디지털 MusicXML로 변환합니다.</p>
+            </div>
+            <div class="guide-step-card">
+              <span class="step-badge">STEP 3</span>
+              <strong>3. 인터랙티브 수정 &amp; 연주</strong>
+              <p>악보 위의 음표를 클릭하여 피치, 박자, 화음을 직접 수정하고 가상 피아노 및 고음질 사운드폰트로 실시간 연주합니다.</p>
+            </div>
+          </div>
+
+          <div class="guide-tip-callout">
+            💡 <strong>악보 파일이 없으신가요?</strong> 상단 <strong>[➕ 새 악보 만들기]</strong> 버튼을 누르면 업로드 없이도 즉시 4마디 빈 악보가 생성되어 나만의 멜로디를 작곡하고 연주할 수 있습니다!
+          </div>
+        </div>
+
+        <!-- TAB 2: OMR & Retry Guide -->
+        <div class="guide-panel" id="tab-omr">
+          <div class="guide-section">
+            <h4>⚡ 빠른 모드 vs 🔬 정밀 모드 선택</h4>
+            <ul>
+              <li><strong>⚡ 빠름 (Fast)</strong>: 일반적인 깔끔한 단일/양손 악보에 적합합니다. 데스큐를 생략하고 300MB 이내 메모리로 빠르게 처리합니다. (기본 권장)</li>
+              <li><strong>🔬 정밀 (Deep CLAHE)</strong>: 스마트폰으로 촬영하거나 그림자, 구김, 기울어짐이 있는 스캔 악보에 적합합니다. 명암비를 극대화하고 오선지를 정밀 추적합니다.</li>
+            </ul>
+          </div>
+
+          <div class="guide-section">
+            <h4>🔄 악보 인식 실패 시 대처법 (다시 시도 가이드)</h4>
+            <p>만약 악보 인식 중 오류가 발생하면 가짜 데모 악보로 넘어가지 않고 <strong>실패 알림과 [다시 시도] 버튼</strong>이 표시됩니다:</p>
+            <ul>
+              <li><strong>[다시 시도 (Retry)] 클릭</strong>: 일시적인 메모리 부족이나 타임아웃인 경우 즉시 동일 조건으로 안전하게 재시도합니다.</li>
+              <li><strong>[모드 전환 후 재시도] 클릭</strong>: 빠른 모드에서 실패했다면 '정밀 모드'로, 또는 반대로 전환하여 신경망 추론을 다시 수행합니다.</li>
+              <li><strong>인식률을 높이는 팁</strong>: 오선지가 수평으로 촬영된 이미지일수록 인식률이 비약적으로 향상됩니다. 4000px 이상의 초고해상도 사진은 사전 리사이즈를 권장합니다.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- TAB 3: Interactive Editor Guide -->
+        <div class="guide-panel" id="tab-editor">
+          <div class="guide-section">
+            <h4>✏️ 음표 선택 및 수정 방법</h4>
+            <ul>
+              <li><strong>음표 선택</strong>: 악보 뷰포트 위의 음표 머리(Notehead) 또는 쉼표(Rest)를 마우스로 클릭하면 파란색 하이라이트와 함께 선택 정보가 표시됩니다.</li>
+              <li><strong>피치 조절</strong>:
+                - 팔레트의 <strong>[↑ 반음], [↓ 반음], [▲ 8va], [▼ 8vb]</strong> 클릭<br>
+                - 키보드 방향키 <kbd>↑</kbd> / <kbd>↓</kbd> 누르기<br>
+                - 하단 <strong>61건반 가상 피아노 롤</strong>에서 원하는 건반 클릭
+              </li>
+              <li><strong>박자 (음길이) 변경</strong>: 팔레트의 온음표(1/1)부터 16분음표(1/16) 버튼 또는 단축키 <kbd>1</kbd>, <kbd>2</kbd>, <kbd>4</kbd>, <kbd>8</kbd>, <kbd>6</kbd> 누르기.</li>
+              <li><strong>화음(Chord) 쌓기</strong>: <kbd>Shift</kbd> 키를 누른 상태에서 피아노 건반을 클릭하거나, <strong>[🎼 화음 쌓기]</strong> 버튼을 켜면 기존 음표에 새 음정이 추가되어 화음이 형성됩니다.</li>
+              <li><strong>쉼표 변환 / 삭제</strong>: 음표 선택 후 <kbd>Delete</kbd> 또는 <kbd>Backspace</kbd>를 누르면 박자를 깨뜨리지 않고 안전하게 쉼표로 치환됩니다.</li>
+              <li><strong>실행 취소 &amp; 다시 실행</strong>: 언제든지 <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>를 눌러 직전 20단계까지 되돌릴 수 있습니다.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- TAB 4: Playback & Export -->
+        <div class="guide-panel" id="tab-audio">
+          <div class="guide-section">
+            <h4>🎧 오디오 연주 &amp; 파일 내보내기</h4>
+            <ul>
+              <li><strong>재생 / 일시정지</strong>: 상단 <strong>[▶ 재생]</strong> 버튼 또는 <kbd>Space</kbd>바를 누르면 실시간 연주 커서가 마디를 지나며 소리가 재생됩니다.</li>
+              <li><strong>템포 (BPM) 조절</strong>: 슬라이더 또는 숫자 입력을 통해 40~200 BPM 범위에서 연주 속도를 자유롭게 변경할 수 있습니다.</li>
+              <li><strong>Acoustic Grand SoundFont</strong>: 고품질 실제 어쿠스틱 피아노 샘플을 사용하여 풍부한 음색으로 감상할 수 있습니다.</li>
+              <li><strong>결과물 다운로드</strong>:
+                - <strong>📄 MusicXML 다운로드</strong>: Sibelius, Finale, MuseScore 등 상용 악보 프로그램과 100% 호환되는 표준 포맷.<br>
+                - <strong>🎹 MIDI 다운로드</strong>: DAW(큐베이스, 로직, 에이블톤 등)에서 열 수 있는 미디 파일.
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- TAB 5: Keyboard Shortcuts -->
+        <div class="guide-panel" id="tab-shortcuts">
+          <table class="shortcuts-table">
+            <thead>
+              <tr><th>기능</th><th>단축키</th><th>설명</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>재생 / 일시정지</strong></td><td><kbd>Space</kbd></td><td>실시간 사운드 연주 토글</td></tr>
+              <tr><td><strong>피치 직접 입력</strong></td><td><kbd>C</kbd> ~ <kbd>B</kbd></td><td>선택된 음표의 음이름 즉시 변경</td></tr>
+              <tr><td><strong>화음 쌓기</strong></td><td><kbd>Shift</kbd> + 건반/단축키</td><td>기존 음표에 새 음정 추가(Chord 구성)</td></tr>
+              <tr><td><strong>반음 올림 / 내림</strong></td><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>반음 단위 조 옮김</td></tr>
+              <tr><td><strong>옥타브 올림 / 내림</strong></td><td><kbd>PageUp</kbd> / <kbd>PageDown</kbd></td><td>12반음(1옥타브) 단위 이동</td></tr>
+              <tr><td><strong>음길이 변경</strong></td><td><kbd>1</kbd>, <kbd>2</kbd>, <kbd>4</kbd>, <kbd>8</kbd>, <kbd>6</kbd></td><td>온음표~16분음표 선택</td></tr>
+              <tr><td><strong>쉼표 변환 / 삭제</strong></td><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>현재 음표를 안전하게 쉼표로 치환</td></tr>
+              <tr><td><strong>실행 취소 / 재실행</strong></td><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd></td><td>최대 20단계 스냅샷 복원</td></tr>
+              <tr><td><strong>음표 커서 이동</strong></td><td><kbd>→</kbd> / <kbd>←</kbd></td><td>다음 / 이전 음표로 선택 이동</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>

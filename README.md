@@ -75,10 +75,10 @@ graph TD
 │   ├── corrector.py            # OMR 규칙 1차 자동 교정 (88건반, 파편, 중복 제거)
 │   └── pipeline.py             # 비동기 잡/취소, 정밀 오프셋 수동 편집, Undo/Redo
 ├── static/
-│   ├── default.musicxml        # 오른손(P1) & 왼손(P2) 4마디 대보표 피아노 데모 악보
-│   ├── index.html              # 다크/라이트 테마, 파이프라인 3열 카드, 에디터 UI
+│   ├── index.html              # 다크/라이트 테마, 파이프라인 3열 카드, 에디터 UI & 사용 설명서
 │   ├── style.css               # 모던 글래스모피즘 CSS 디자인 시스템
-│   └── app.js                  # OSMD 렌더링, Web Audio 재생, 에디터 상태 머신
+│   └── app.js                  # OSMD 렌더링, Web Audio 재생, 에디터 상태 머신 & 재시도 로직
+├── download_models.py          # oemer ONNX 모델 가중치 안전 다운로드 스크립트
 ├── main.py                     # FastAPI REST API 엔드포인트 & 정적 파일 서빙
 ├── requirements.txt            # Python 필수 의존성 패키지 목록
 └── .gitignore                  # Git 추적 제외 설정

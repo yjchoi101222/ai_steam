@@ -40,15 +40,18 @@ const state = {
 
 // ==================== DOM ELEMENTS CACHE ====================
 const dom = {
-  // Theme & Auto Mode
+  // Header controls
   themeToggle: document.getElementById("btn-theme-toggle"),
   themeIcon: document.getElementById("theme-icon"),
   autoToggle: document.getElementById("toggle-auto-pipeline"),
   autoBadge: document.getElementById("auto-mode-badge"),
-  loadDemoBtn: document.getElementById("btn-load-demo"),
+  newScoreBtn: document.getElementById("btn-new-score"),
+  userManualBtn: document.getElementById("btn-user-manual"),
   helpBtn: document.getElementById("btn-help-modal"),
-  helpModal: document.getElementById("help-modal"),
-  closeModalBtn: document.getElementById("btn-close-modal"),
+  guideModal: document.getElementById("guide-modal"),
+  closeGuideBtn: document.getElementById("btn-close-guide"),
+  modalTabBtns: document.querySelectorAll(".modal-tab-btn"),
+  guidePanels: document.querySelectorAll(".guide-panel"),
 
   // Pipeline Card 1
   dropzone: document.getElementById("dropzone"),
@@ -69,6 +72,15 @@ const dom = {
   btnExtract: document.getElementById("btn-extract"),
   btnCancelExtract: document.getElementById("btn-cancel-extract"),
   statusExtract: document.getElementById("status-extract"),
+  omrRetryBox: document.getElementById("omr-retry-box"),
+  retryErrorMsg: document.getElementById("retry-error-msg"),
+  btnRetryExtract: document.getElementById("btn-retry-extract"),
+  btnSwitchModeRetry: document.getElementById("btn-switch-mode-retry"),
+
+  // Placeholder hero buttons
+  heroUploadBtn: document.getElementById("btn-hero-upload"),
+  heroNewScoreBtn: document.getElementById("btn-hero-new-score"),
+  heroManualBtn: document.getElementById("btn-hero-manual"),
 
   // Pipeline Card 3
   valKey: document.getElementById("val-key"),
@@ -138,12 +150,6 @@ window.addEventListener("DOMContentLoaded", () => {
   initAudioEngine();
   setupEventListeners();
   setupKeyboardShortcuts();
-
-  // URL 파라미터로 자동 데모 요청 시
-  const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get("demo") === "true") {
-    loadDemoScore();
-  }
 });
 
 // ==================== THEME & UI HELPERS ====================
@@ -389,8 +395,35 @@ function setupEventListeners() {
   dom.btnOptimize.addEventListener("click", () => executeOptimize());
   dom.btnRender.addEventListener("click", () => executeRender());
 
-  // Demo Score
-  dom.loadDemoBtn.addEventListener("click", () => loadDemoScore());
+  // New Score & Retry Buttons
+  if (dom.newScoreBtn) dom.newScoreBtn.addEventListener("click", () => createNewScore());
+  if (dom.heroNewScoreBtn) dom.heroNewScoreBtn.addEventListener("click", () => createNewScore());
+  if (dom.heroUploadBtn) dom.heroUploadBtn.addEventListener("click", () => dom.fileInput.click());
+  if (dom.btnRetryExtract) dom.btnRetryExtract.addEventListener("click", () => retryExtract(false));
+  if (dom.btnSwitchModeRetry) dom.btnSwitchModeRetry.addEventListener("click", () => retryExtract(true));
+
+  // User Manual Modal & Tabs
+  const openManual = (tabId = null) => {
+    dom.guideModal.classList.remove("hidden");
+    if (tabId) switchGuideTab(tabId);
+  };
+  const closeManual = () => dom.guideModal.classList.add("hidden");
+
+  if (dom.userManualBtn) dom.userManualBtn.addEventListener("click", () => openManual("tab-start"));
+  if (dom.helpBtn) dom.helpBtn.addEventListener("click", () => openManual("tab-shortcuts"));
+  if (dom.heroManualBtn) dom.heroManualBtn.addEventListener("click", () => openManual("tab-start"));
+  if (dom.closeGuideBtn) dom.closeGuideBtn.addEventListener("click", closeManual);
+
+  dom.guideModal.addEventListener("click", (e) => {
+    if (e.target === dom.guideModal) closeManual();
+  });
+
+  dom.modalTabBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const targetTab = btn.dataset.tab;
+      switchGuideTab(targetTab);
+    });
+  });
 
   // Playback Controls
   dom.btnPlayPause.addEventListener("click", () => togglePlayPause());
@@ -451,12 +484,14 @@ function setupEventListeners() {
     state.isChordAddMode = !state.isChordAddMode;
     updateChordBadge();
   });
+}
 
-  // Modal
-  dom.helpBtn.addEventListener("click", () => dom.helpModal.classList.remove("hidden"));
-  dom.closeModalBtn.addEventListener("click", () => dom.helpModal.classList.add("hidden"));
-  dom.helpModal.addEventListener("click", (e) => {
-    if (e.target === dom.helpModal) dom.helpModal.classList.add("hidden");
+function switchGuideTab(tabId) {
+  dom.modalTabBtns.forEach(b => {
+    b.classList.toggle("active", b.dataset.tab === tabId);
+  });
+  dom.guidePanels.forEach(panel => {
+    panel.classList.toggle("active", panel.id === tabId);
   });
 }
 
@@ -663,6 +698,7 @@ async function executeExtract() {
   setStepStatus(dom.statusExtract, "processing", "OMR 구동 중...");
   dom.btnCancelExtract.classList.remove("hidden");
   dom.btnExtract.disabled = true;
+  if (dom.omrRetryBox) dom.omrRetryBox.classList.add("hidden");
   logToConsole(`[2단계] AI OMR 인식 시작 (모드: ${mode})...`);
 
   try {
@@ -681,8 +717,18 @@ async function executeExtract() {
     setStepStatus(dom.statusExtract, "error", "실패");
     dom.btnCancelExtract.classList.add("hidden");
     dom.btnExtract.disabled = false;
+    showOmrFailure(e.message);
     logToConsole(`OMR 시작 실패: ${e.message}`, "error");
     throw e;
+  }
+}
+
+function showOmrFailure(errorMsg) {
+  if (dom.omrRetryBox) {
+    dom.omrRetryBox.classList.remove("hidden");
+    if (dom.retryErrorMsg) {
+      dom.retryErrorMsg.textContent = errorMsg || "악보 인식 중 오류가 발생했습니다. 재시도를 권장합니다.";
+    }
   }
 }
 
@@ -709,6 +755,7 @@ function pollExtractStatus(jobId) {
           clearInterval(state.pollInterval);
           dom.btnCancelExtract.classList.add("hidden");
           dom.btnExtract.disabled = false;
+          if (dom.omrRetryBox) dom.omrRetryBox.classList.add("hidden");
           setStepStatus(dom.statusExtract, "ready", "완료 (100%)");
           dom.btnOptimize.disabled = false;
           logToConsole("MusicXML OMR 추출 완료!", "system");
@@ -718,8 +765,9 @@ function pollExtractStatus(jobId) {
           dom.btnCancelExtract.classList.add("hidden");
           dom.btnExtract.disabled = false;
           setStepStatus(dom.statusExtract, "error", "실패");
+          showOmrFailure(statusData.error || statusData.message);
           logToConsole(`OMR 분석 실패: ${statusData.error}`, "error");
-          reject(new Error(statusData.error));
+          reject(new Error(statusData.error || "OMR 실패"));
         } else if (statusData.status === "cancelled") {
           clearInterval(state.pollInterval);
           dom.btnCancelExtract.classList.add("hidden");
@@ -732,6 +780,7 @@ function pollExtractStatus(jobId) {
         clearInterval(state.pollInterval);
         dom.btnCancelExtract.classList.add("hidden");
         dom.btnExtract.disabled = false;
+        showOmrFailure(err.message);
         reject(err);
       }
     }, 1500);
@@ -805,17 +854,73 @@ async function executeRender() {
   }
 }
 
-async function loadDemoScore() {
-  logToConsole("데모 악보(Right/Left Hand 4마디 대보표) 불러오는 중...", "system");
-  state.fileHash = "demo";
-  state.filename = "demo.musicxml";
+async function createNewScore() {
+  logToConsole("새 4마디 빈 악보(대보표) 생성 중...", "system");
+  try {
+    const res = await fetch("/api/score/new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "새 악보",
+        time_signature: "4/4",
+        key_signature: "C",
+        measures_count: 4,
+        is_grand_staff: true
+      })
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "새 악보 생성 실패");
+    const data = await res.json();
+    state.fileHash = data.file_hash;
+    state.filename = data.filename;
 
-  // 카드 상태 갱신
-  setStepStatus(dom.statusPreprocess, "ready", "데모 준비됨");
-  setStepStatus(dom.statusExtract, "ready", "데모 준비됨");
-  setStepStatus(dom.statusOptimize, "ready", "교정 완료");
+    setStepStatus(dom.statusPreprocess, "ready", "새 악보");
+    setStepStatus(dom.statusExtract, "ready", "새 악보");
+    setStepStatus(dom.statusOptimize, "ready", "초기화됨");
 
-  await executeRender();
+    updateAnalysisUI(data.analysis);
+
+    dom.btnDlXml.href = data.xml_url;
+    dom.btnDlXml.classList.remove("disabled");
+    dom.btnDlMidi.href = data.midi_url;
+    dom.btnDlMidi.classList.remove("disabled");
+
+    state.currentXmlUrl = data.xml_url;
+    await renderOsmdScore(data.xml_url);
+
+    setEditMode(true);
+    logToConsole("✨ 새 악보가 생성되었습니다! 악보 위의 쉼표를 클릭하거나 건반을 눌러 즉시 편집/작곡을 시작하세요.", "system");
+  } catch (err) {
+    logToConsole(`새 악보 생성 오류: ${err.message}`, "error");
+  }
+}
+
+async function retryExtract(switchMode = false) {
+  if (!state.fileHash) {
+    logToConsole("재시도할 업로드 악보가 없습니다. 먼저 악보 파일을 업로드해 주세요.", "error");
+    return;
+  }
+
+  if (switchMode) {
+    const currentMode = document.querySelector('input[name="omr_mode"]:checked').value;
+    const nextMode = currentMode === "fast" ? "deep" : "fast";
+    const radioToSelect = document.querySelector(`input[name="omr_mode"][value="${nextMode}"]`);
+    if (radioToSelect) radioToSelect.checked = true;
+    logToConsole(`🔄 OMR 인식 모드를 [${nextMode === "fast" ? "⚡ 빠름 (Fast)" : "🔬 정밀 (Deep CLAHE)"}]로 전환했습니다.`, "system");
+  }
+
+  if (dom.omrRetryBox) dom.omrRetryBox.classList.add("hidden");
+  logToConsole("🔄 OMR 인식을 다시 시도합니다...", "system");
+
+  try {
+    const extSuccess = await executeExtract();
+    if (extSuccess) {
+      await executeOptimize();
+      await executeRender();
+      logToConsole("🎉 악보 OMR 재시도 및 렌더링이 성공적으로 완료되었습니다!", "system");
+    }
+  } catch (err) {
+    logToConsole(`재시도 실패: ${err.message}`, "error");
+  }
 }
 
 function setStepStatus(el, statusClass, text) {

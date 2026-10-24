@@ -87,6 +87,14 @@ class RestoreScoreRequest(BaseModel):
     action: str = "undo"  # "undo" 또는 "redo"
 
 
+class NewScoreRequest(BaseModel):
+    title: str = "새 악보"
+    time_signature: str = "4/4"
+    key_signature: str = "C"
+    measures_count: int = 4
+    is_grand_staff: bool = True
+
+
 # ==================== REST API 라우터 ====================
 
 @app.get("/healthz")
@@ -231,6 +239,22 @@ async def restore_score(req: RestoreScoreRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.post("/api/score/new")
+async def create_new_score(req: NewScoreRequest = NewScoreRequest()):
+    """[상시 에디터 지원] 데모 악보 없이 새로운 빈 악보(대보표/단일보표)를 생성하여 즉시 편집 모드로 진입합니다."""
+    try:
+        render_data = pipeline.create_blank_score(
+            title=req.title,
+            time_signature=req.time_signature,
+            key_signature=req.key_signature,
+            measures_count=req.measures_count,
+            is_grand_staff=req.is_grand_staff
+        )
+        return render_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"새 악보 생성 실패: {str(e)}")
+
+
 @app.get("/api/cache/{filename}")
 async def get_cached_file(filename: str):
     """생성된 이미지, MusicXML, MIDI 파일을 안전하게 다운로드/서빙합니다."""
@@ -239,11 +263,7 @@ async def get_cached_file(filename: str):
     file_path = os.path.join(pipeline.cache_dir, clean_filename)
 
     if not os.path.exists(file_path):
-        # demo 파일 요청 시 자동 복사
-        if "demo" in clean_filename:
-            pipeline._ensure_demo_file()
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="캐시 파일을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="캐시 파일을 찾을 수 없습니다.")
 
     media_type = "application/octet-stream"
     if clean_filename.endswith(".png"):
