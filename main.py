@@ -105,6 +105,8 @@ async def health_check():
 
 
 @app.get("/", response_class=HTMLResponse)
+@app.get("/intro", response_class=HTMLResponse)
+@app.get("/about", response_class=HTMLResponse)
 async def serve_landing():
     """MuseAI 프로젝트 소개 랜딩 페이지(포스터)를 반환합니다."""
     landing_path = os.path.join(STATIC_DIR, "landing.html")

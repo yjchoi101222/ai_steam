@@ -737,6 +737,7 @@ import gc
 import ctypes
 import logging
 import cv2
+import numpy as np
 
 # Windows/Linux UTF-8 I/O 설정
 if sys.stdout and hasattr(sys.stdout, 'buffer'):
