@@ -46,6 +46,7 @@ const dom = {
   autoToggle: document.getElementById("toggle-auto-pipeline"),
   autoBadge: document.getElementById("auto-mode-badge"),
   newScoreBtn: document.getElementById("btn-new-score"),
+  clearCacheBtn: document.getElementById("btn-clear-cache"),
   userManualBtn: document.getElementById("btn-user-manual"),
   helpBtn: document.getElementById("btn-help-modal"),
   guideModal: document.getElementById("guide-modal"),
@@ -150,6 +151,7 @@ window.addEventListener("DOMContentLoaded", () => {
   initAudioEngine();
   setupEventListeners();
   setupKeyboardShortcuts();
+  tryRestoreFromLocalStorage();
 });
 
 // ==================== THEME & UI HELPERS ====================
@@ -183,6 +185,83 @@ function logToConsole(message, type = "info") {
   entry.textContent = `[${timestamp}] ${message}`;
   dom.omrLogs.appendChild(entry);
   dom.omrLogs.scrollTop = dom.omrLogs.scrollHeight;
+}
+
+// ==================== CLIENT STORAGE & CACHE MANAGEMENT ====================
+function backupCurrentState() {
+  if (!state.fileHash) return;
+  try {
+    const backupData = {
+      fileHash: state.fileHash,
+      filename: state.filename,
+      currentXmlUrl: state.currentXmlUrl,
+      targetPartIndex: state.targetPartIndex,
+      savedAt: Date.now()
+    };
+    localStorage.setItem("ai_steam_last_meta", JSON.stringify(backupData));
+  } catch (e) {
+    console.warn("로컬스토리지 백업 실패:", e);
+  }
+}
+
+async function tryRestoreFromLocalStorage() {
+  try {
+    const saved = localStorage.getItem("ai_steam_last_meta");
+    if (!saved) return;
+    const backupData = JSON.parse(saved);
+    if (!backupData || !backupData.fileHash) return;
+
+    // 24시간 이내의 캐시인지 확인
+    if (Date.now() - (backupData.savedAt || 0) > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem("ai_steam_last_meta");
+      return;
+    }
+
+    const checkUrl = `/api/cache/${backupData.fileHash}_opt.musicxml`;
+    const checkRes = await fetch(checkUrl, { method: "HEAD" });
+    if (checkRes.ok) {
+      state.fileHash = backupData.fileHash;
+      state.filename = backupData.filename || "복원된 악보";
+      state.targetPartIndex = backupData.targetPartIndex || 0;
+      state.currentXmlUrl = checkUrl;
+
+      setStepStatus(dom.statusPreprocess, "ready", "복원됨");
+      setStepStatus(dom.statusExtract, "ready", "복원됨");
+      setStepStatus(dom.statusOptimize, "ready", "복원됨");
+
+      dom.btnDlXml.href = checkUrl;
+      dom.btnDlXml.classList.remove("disabled");
+      dom.btnDlMidi.href = `/api/cache/${backupData.fileHash}.mid`;
+      dom.btnDlMidi.classList.remove("disabled");
+
+      await renderOsmdScore(`${checkUrl}?t=${Date.now()}`);
+      logToConsole("📦 이전 편집 세션 악보를 로컬 스토리지에서 자동 복원했습니다.", "system");
+    } else {
+      localStorage.removeItem("ai_steam_last_meta");
+    }
+  } catch (e) {
+    console.log("이전 세션 복원 건너뜀:", e);
+  }
+}
+
+async function executeClearCache() {
+  if (!confirm("서버의 모든 임시 분석 캐시를 삭제하고 기본 상태로 초기화하시겠습니까?")) return;
+  try {
+    const res = await fetch("/api/cache", { method: "DELETE" });
+    if (!res.ok) throw new Error((await res.json()).detail || "캐시 삭제 실패");
+    const data = await res.json();
+    logToConsole("🗑️ 서버 캐시가 성공적으로 초기화되었습니다.", "system");
+    localStorage.removeItem("ai_steam_last_meta");
+    resetFileUpload();
+    dom.sheetPlaceholder.classList.remove("hidden");
+    dom.osmdContainer.innerHTML = "";
+    state.fileHash = null;
+    state.osmd = null;
+    alert("캐시가 초기화되었습니다. 새 악보를 생성하거나 새 악보 이미지를 업로드해 주세요.");
+  } catch (err) {
+    logToConsole(`캐시 삭제 오류: ${err.message}`, "error");
+    alert(`캐시 삭제 실패: ${err.message}`);
+  }
 }
 
 // ==================== 61-KEY VIRTUAL PIANO (C2 ~ C7) ====================
@@ -401,6 +480,7 @@ function setupEventListeners() {
   if (dom.heroUploadBtn) dom.heroUploadBtn.addEventListener("click", () => dom.fileInput.click());
   if (dom.btnRetryExtract) dom.btnRetryExtract.addEventListener("click", () => retryExtract(false));
   if (dom.btnSwitchModeRetry) dom.btnSwitchModeRetry.addEventListener("click", () => retryExtract(true));
+  if (dom.clearCacheBtn) dom.clearCacheBtn.addEventListener("click", () => executeClearCache());
 
   // User Manual Modal & Tabs
   const openManual = (tabId = null) => {
@@ -846,6 +926,7 @@ async function executeRender() {
     // OSMD 악보 렌더링
     state.currentXmlUrl = data.xml_url;
     await renderOsmdScore(data.xml_url);
+    backupCurrentState();
 
     logToConsole("악보 렌더링 완료! 에디터에서 바로 재생 및 편집할 수 있습니다.", "system");
   } catch (e) {
@@ -886,6 +967,7 @@ async function createNewScore() {
 
     state.currentXmlUrl = data.xml_url;
     await renderOsmdScore(data.xml_url);
+    backupCurrentState();
 
     setEditMode(true);
     logToConsole("✨ 새 악보가 생성되었습니다! 악보 위의 쉼표를 클릭하거나 건반을 눌러 즉시 편집/작곡을 시작하세요.", "system");
@@ -1065,11 +1147,23 @@ function updateCursorSelection() {
   }
 }
 
+let isEditInFlight = false;
+
 // ==================== SCORE EDITING DISPATCHER ====================
 async function dispatchScoreEdit(payload) {
   if (!state.fileHash || !state.selectedNote) {
     alert("편집할 악보와 음표가 선택되지 않았습니다.");
     return;
+  }
+
+  if (isEditInFlight) {
+    // 빠른 연타/단축키 폭주 방지 (In-Flight Lock & Debounce)
+    return;
+  }
+
+  isEditInFlight = true;
+  if (dom.editorPalette) {
+    dom.editorPalette.classList.add("palette-busy");
   }
 
   const bodyData = {
@@ -1102,11 +1196,19 @@ async function dispatchScoreEdit(payload) {
     const targetUrl = `/api/cache/${state.fileHash}_opt.musicxml?t=${Date.now()}`;
     await renderOsmdScore(targetUrl);
 
+    // 편집 상태 로컬스토리지 백업
+    backupCurrentState();
+
     // Undo 버튼 활성화
     dom.btnUndo.disabled = false;
   } catch (err) {
     alert(`수정 오류: ${err.message}`);
     logToConsole(`음표 수정 실패: ${err.message}`, "error");
+  } finally {
+    isEditInFlight = false;
+    if (dom.editorPalette) {
+      dom.editorPalette.classList.remove("palette-busy");
+    }
   }
 }
 
@@ -1128,6 +1230,7 @@ async function executeRestore(action) {
     logToConsole(`${action === "undo" ? "실행 취소(Undo)" : "다시 실행(Redo)"} 완료`);
     const targetUrl = `/api/cache/${state.fileHash}_opt.musicxml?t=${Date.now()}`;
     await renderOsmdScore(targetUrl);
+    backupCurrentState();
   } catch (err) {
     logToConsole(`복원 실패: ${err.message}`, "error");
   }
@@ -1151,14 +1254,18 @@ function setTargetPart(partIdx) {
   updateCursorSelection();
 }
 
-function toggleEditMode() {
-  state.isEditMode = !state.isEditMode;
+function setEditMode(enable) {
+  state.isEditMode = enable;
   dom.editorPalette.classList.toggle("disabled-palette", !state.isEditMode);
   dom.btnToggleEditMode.classList.toggle("btn-primary", state.isEditMode);
   dom.btnToggleEditMode.classList.toggle("btn-outline", !state.isEditMode);
 
   dom.editModeIcon.textContent = state.isEditMode ? "🔒" : "✏️";
   dom.editModeText.textContent = state.isEditMode ? "수정 모드 완료" : "수정 모드 켜기";
+}
+
+function toggleEditMode() {
+  setEditMode(!state.isEditMode);
 }
 
 // ==================== WEB AUDIO PLAYBACK TIMELINE ====================

@@ -255,6 +255,16 @@ async def create_new_score(req: NewScoreRequest = NewScoreRequest()):
         raise HTTPException(status_code=500, detail=f"새 악보 생성 실패: {str(e)}")
 
 
+@app.delete("/api/cache")
+async def clear_cache():
+    """서버 캐시 디렉터리 정리 API (기본 데모 악보 복원 보장)"""
+    try:
+        pipeline.clear_cache()
+        return {"status": "success", "message": "캐시가 성공적으로 초기화되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"캐시 삭제 실패: {str(e)}")
+
+
 @app.get("/api/cache/{filename}")
 async def get_cached_file(filename: str):
     """생성된 이미지, MusicXML, MIDI 파일을 안전하게 다운로드/서빙합니다."""
@@ -263,7 +273,10 @@ async def get_cached_file(filename: str):
     file_path = os.path.join(pipeline.cache_dir, clean_filename)
 
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="캐시 파일을 찾을 수 없습니다.")
+        if clean_filename.startswith("demo"):
+            pipeline._ensure_default_demo()
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="캐시 파일을 찾을 수 없습니다.")
 
     media_type = "application/octet-stream"
     if clean_filename.endswith(".png"):

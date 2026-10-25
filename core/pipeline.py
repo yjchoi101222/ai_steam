@@ -110,9 +110,44 @@ class SheetMusicAnalyzerPipeline:
         self.job_processes: Dict[str, subprocess.Popen] = {}
         self._lock = threading.Lock()
 
+        # OMR 동시 실행 제어 락 (512MB RAM OOM 방지: 동시 1개 프로세스만 허용)
+        self._omr_execution_lock = threading.Lock()
+
         # 각 file_hash 별 Undo/Redo 히스토리 스택 (최대 20개 저장)
         # file_hash: {"undo": [xml_str, ...], "redo": [xml_str, ...]}
         self.history: Dict[str, Dict[str, List[str]]] = {}
+
+    def clear_cache(self):
+        """캐시 폴더의 모든 파일을 정리하고 기본 데모 악보를 복구합니다."""
+        for f in os.listdir(self.cache_dir):
+            file_path = os.path.join(self.cache_dir, f)
+            try:
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print(f"[Clear Cache] 파일 삭제 오류 ({f}): {e}")
+        self._ensure_default_demo()
+
+    def _ensure_default_demo(self):
+        """static/default.musicxml을 omr_cache/demo.musicxml 및 demo.mid로 보장하여 데모 복구 지원"""
+        default_xml = os.path.join(self.base_dir, "static", "default.musicxml")
+        demo_xml = os.path.join(self.cache_dir, "demo.musicxml")
+        demo_opt = os.path.join(self.cache_dir, "demo_opt.musicxml")
+        if os.path.exists(default_xml):
+            shutil.copy2(default_xml, demo_xml)
+            shutil.copy2(default_xml, demo_opt)
+            demo_mid = os.path.join(self.cache_dir, "demo.mid")
+            if not os.path.exists(demo_mid):
+                try:
+                    s = m21.converter.parse(demo_xml)
+                    mf = m21.midi.translate.streamToMidiFile(s)
+                    mf.open(demo_mid, 'wb')
+                    mf.write()
+                    mf.close()
+                except Exception as e:
+                    print(f"[_ensure_default_demo] demo.mid 생성 오류: {e}")
 
     def create_blank_score(
         self,
@@ -136,7 +171,7 @@ class SheetMusicAnalyzerPipeline:
 
         # Part 2: 왼손 (Bass)
         p2 = m21.stream.Part(id="P2") if is_grand_staff else None
-        if p2:
+        if p2 is not None:
             p2.partName = "Left Hand"
 
         ts = m21.meter.TimeSignature(time_signature)
@@ -152,18 +187,18 @@ class SheetMusicAnalyzerPipeline:
             m1.append(r1)
             p1.append(m1)
 
-            if p2:
+            if p2 is not None:
                 m2 = m21.stream.Measure(number=m_num)
                 if m_num == 1:
                     m2.append(m21.clef.BassClef())
-                    m2.append(ks)
-                    m2.append(ts)
+                    m2.append(m21.key.Key(key_signature))
+                    m2.append(m21.meter.TimeSignature(time_signature))
                 r2 = m21.note.Rest(quarterLength=ts.barDuration.quarterLength)
                 m2.append(r2)
                 p2.append(m2)
 
         score.append(p1)
-        if p2:
+        if p2 is not None:
             score.append(p2)
 
         file_hash = f"score_{uuid.uuid4().hex[:12]}"
@@ -272,58 +307,60 @@ class SheetMusicAnalyzerPipeline:
             with self._lock:
                 return self.jobs.get(job_id, {}).get("cancel_flag", False)
 
-        try:
-            with self._lock:
-                self.jobs[job_id]["status"] = "running"
-                self.jobs[job_id]["percent"] = 5
-                self.jobs[job_id]["message"] = "OMR 엔진 초기화 중..."
+        # 512MB RAM OOM 방지: OMR 프로세스 단일 동시성 강제
+        with self._omr_execution_lock:
+            try:
+                with self._lock:
+                    self.jobs[job_id]["status"] = "running"
+                    self.jobs[job_id]["percent"] = 5
+                    self.jobs[job_id]["message"] = "OMR 엔진 초기화 중..."
 
-            cache_img_path = os.path.join(self.cache_dir, f"{file_hash}.png")
-            if not os.path.exists(cache_img_path):
-                raise FileNotFoundError("전처리된 이미지가 캐시에 존재하지 않습니다.")
+                cache_img_path = os.path.join(self.cache_dir, f"{file_hash}.png")
+                if not os.path.exists(cache_img_path):
+                    raise FileNotFoundError("전처리된 이미지가 캐시에 존재하지 않습니다.")
 
-            cache_xml_path = os.path.join(self.cache_dir, f"{file_hash}.musicxml")
+                cache_xml_path = os.path.join(self.cache_dir, f"{file_hash}.musicxml")
 
-            with open(cache_img_path, "rb") as f:
-                img_bytes = f.read()
+                with open(cache_img_path, "rb") as f:
+                    img_bytes = f.read()
 
-            # 실제 oemer 엔진을 가동하여 사용자 업로드 악보 인식 수행
-            xml_filepath, temp_work_dir = self._run_oemer(
-                image_bytes=img_bytes,
-                filename=filename,
-                mode=mode,
-                job_id=job_id,
-                progress_callback=progress_cb,
-                cancel_check_callback=cancel_check_cb
-            )
+                # 실제 oemer 엔진을 가동하여 사용자 업로드 악보 인식 수행
+                xml_filepath, temp_work_dir = self._run_oemer(
+                    image_bytes=img_bytes,
+                    filename=filename,
+                    mode=mode,
+                    job_id=job_id,
+                    progress_callback=progress_cb,
+                    cancel_check_callback=cancel_check_cb
+                )
 
-            # 인식된 실제 MusicXML 결과물을 캐시에 저장
-            shutil.copy2(xml_filepath, cache_xml_path)
-            
-            # 규칙 최적화 전/후 동기화를 위해 초기 opt 파일도 인식된 악보로 생성
-            opt_path = os.path.join(self.cache_dir, f"{file_hash}_opt.musicxml")
-            shutil.copy2(xml_filepath, opt_path)
+                # 인식된 실제 MusicXML 결과물을 캐시에 저장
+                shutil.copy2(xml_filepath, cache_xml_path)
+                
+                # 규칙 최적화 전/후 동기화를 위해 초기 opt 파일도 인식된 악보로 생성
+                opt_path = os.path.join(self.cache_dir, f"{file_hash}_opt.musicxml")
+                shutil.copy2(xml_filepath, opt_path)
 
-            self._cleanup_temp_file(temp_work_dir)
+                self._cleanup_temp_file(temp_work_dir)
 
-            with self._lock:
-                self.jobs[job_id]["status"] = "completed"
-                self.jobs[job_id]["percent"] = 100
-                self.jobs[job_id]["message"] = "MusicXML 추출 완료!"
+                with self._lock:
+                    self.jobs[job_id]["status"] = "completed"
+                    self.jobs[job_id]["percent"] = 100
+                    self.jobs[job_id]["message"] = "MusicXML 추출 완료!"
 
-        except Exception as e:
-            with self._lock:
-                if self.jobs.get(job_id, {}).get("cancel_flag", False):
-                    self.jobs[job_id]["status"] = "cancelled"
-                    self.jobs[job_id]["message"] = "사용자에 의해 취소됨"
-                else:
-                    self.jobs[job_id]["status"] = "failed"
-                    self.jobs[job_id]["error"] = str(e)
-                    self.jobs[job_id]["message"] = f"악보 인식 실패: {str(e)}"
-        finally:
-            with self._lock:
-                if job_id in self.job_processes:
-                    del self.job_processes[job_id]
+            except Exception as e:
+                with self._lock:
+                    if self.jobs.get(job_id, {}).get("cancel_flag", False):
+                        self.jobs[job_id]["status"] = "cancelled"
+                        self.jobs[job_id]["message"] = "사용자에 의해 취소됨"
+                    else:
+                        self.jobs[job_id]["status"] = "failed"
+                        self.jobs[job_id]["error"] = str(e)
+                        self.jobs[job_id]["message"] = f"악보 인식 실패: {str(e)}"
+            finally:
+                with self._lock:
+                    if job_id in self.job_processes:
+                        del self.job_processes[job_id]
 
     def optimize_xml(self, file_hash: str) -> bool:
         """[3단계] 추출된 MusicXML의 노이즈 제거 및 음악 규칙 교정을 수행합니다."""
@@ -620,8 +657,8 @@ class SheetMusicAnalyzerPipeline:
         try:
             from PIL import Image, ImageOps
             img = Image.open(io.BytesIO(image_bytes))
-            # U-Net ConvTranspose ShapeInferenceError 방지: 1350px(fast) / 1800px(deep)
-            max_dim = 1800 if mode == "deep" else 1350
+            # 512MB RAM OOM 방지: 경량 fast 모드 1024px, 정밀 deep 모드 1400px 캡핑
+            max_dim = 1400 if mode == "deep" else 1024
             w, h = img.size
             if max(w, h) > max_dim:
                 if progress_callback:
@@ -670,19 +707,22 @@ class SheetMusicAnalyzerPipeline:
             wrapper_path = os.path.join(temp_work_dir, "fast_oemer.py")
             with open(wrapper_path, "w", encoding="utf-8") as fw:
                 fw.write(f"""import os
-# Render 512MB RAM OOM 방지: 딥러닝/수치연산 단일 쓰레드 제한
+# Render 512MB RAM OOM 방지: 딥러닝/수치연산 단일 쓰레드 제한 및 환경 변수
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["ORT_TENSORRT_UNAVAILABLE"] = "1"
 
 import sys
 import io
+import gc
+import ctypes
 import logging
 import cv2
 
-# Windows cp949 방지
+# Windows/Linux UTF-8 I/O 설정
 if sys.stdout and hasattr(sys.stdout, 'buffer'):
     try:
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
@@ -694,7 +734,36 @@ if sys.stderr and hasattr(sys.stderr, 'buffer'):
     except Exception:
         pass
 
+# 디스크 I/O 및 메모리 절약을 위한 무력화
 cv2.imwrite = lambda *args, **kwargs: True
+
+# ONNX Runtime Monkey-Patch (512MB RAM OOM 방지 핵심)
+import onnxruntime as ort
+
+_orig_InferenceSession = ort.InferenceSession
+
+def _patched_InferenceSession(path_or_bytes, *args, **kwargs):
+    sess_options = kwargs.get("sess_options")
+    if sess_options is None:
+        sess_options = ort.SessionOptions()
+    sess_options.enable_mem_pattern = False
+    sess_options.enable_cpu_mem_arena = False
+    sess_options.intra_op_num_threads = 1
+    sess_options.inter_op_num_threads = 1
+    kwargs["sess_options"] = sess_options
+    return _orig_InferenceSession(path_or_bytes, *args, **kwargs)
+
+ort.InferenceSession = _patched_InferenceSession
+
+def _trim_memory():
+    gc.collect()
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except Exception:
+        pass
+
+_trim_memory()
 
 from oemer.ete import extract, clear_data
 
@@ -708,8 +777,10 @@ class Args:
     without_deskew = {without_deskew_flag}
 
 try:
+    _trim_memory()
     clear_data()
     extract(Args())
+    _trim_memory()
 except Exception as e:
     err_msg = str(e).encode('utf-8', errors='replace').decode('utf-8', errors='replace')
     try:
@@ -717,6 +788,8 @@ except Exception as e:
     except Exception:
         pass
     sys.exit(1)
+finally:
+    _trim_memory()
 """)
             cmd = [sys.executable, wrapper_path]
             # Render 512MB RAM OOM 방지: 단일 쓰레드로 고정
@@ -728,6 +801,7 @@ except Exception as e:
             env["OPENBLAS_NUM_THREADS"] = "1"
             env["VECLIB_MAXIMUM_THREADS"] = "1"
             env["NUMEXPR_NUM_THREADS"] = "1"
+            env["ORT_TENSORRT_UNAVAILABLE"] = "1"
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUTF8"] = "1"
             env["PYTHONLEGACYWINDOWSSTDIO"] = "0"

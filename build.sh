@@ -1,27 +1,28 @@
 #!/usr/bin/env bash
-# exit on error
+# Exit immediately if a command exits with a non-zero status
 set -o errexit
 
 echo "=========================================================="
-echo "🎹 AI-STEAM Studio: Render Production Build Starting..."
+echo "🎹 AI-STEAM Studio: Cloud Production Build Starting..."
 echo "=========================================================="
 
-# 1. pip & 빌드 도구 최신화 (메모리 절약을 위해 --no-cache-dir 권장)
+# 1. pip & build tools update (avoid cache to minimize memory)
 python -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# 2. 필수 의존성 설치
+# 2. Install dependencies
 pip install --no-cache-dir -r requirements.txt
 
-# 3. Linux CPU 클라우드 환경용 onnxruntime CPU 바이너리 강제 보장 (GPU 패키지 충돌 방지)
+# 3. Ensure lightweight CPU onnxruntime binary (prevent GPU driver mismatch & reduce memory footprint)
 pip uninstall -y onnxruntime-gpu || true
 pip install --no-cache-dir --force-reinstall --no-deps onnxruntime
 
-# 4. [핵심] oemer ONNX 딥러닝 모델 가중치 사전 다운로드 및 무결성 검증
+# 4. Pre-download deep learning ONNX checkpoints into container
+echo "[STEP] Pre-downloading oemer ONNX checkpoints..."
 python download_models.py
 
-# 5. 캐시 디렉터리 준비
+# 5. Prepare cache directory
 mkdir -p omr_cache
 
 echo "=========================================================="
-echo "✅ AI-STEAM Studio: Render Production Build Finished!"
+echo "✅ AI-STEAM Studio: Production Build Finished Successfully!"
 echo "=========================================================="

@@ -816,6 +816,14 @@ input:checked + .switch-slider:before {
   user-select: none;
 }
 
+/* Debounce / Busy State during async note edit */
+.editor-palette.palette-busy {
+  opacity: 0.65;
+  pointer-events: none;
+  cursor: wait;
+  transition: opacity 0.15s ease;
+}
+
 .selection-info-bar {
   display: flex;
   align-items: center;

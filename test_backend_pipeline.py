@@ -281,6 +281,21 @@ def test_api_cache_files():
     return f"Dynamic {DYNAMIC_SCORE_HASH}.mid ({len(mid_res.content):,} B) & {DYNAMIC_SCORE_HASH}.musicxml ({len(xml_res.content):,} B) verified"
 
 
+# 11. Cache Clearing & Default Demo Score Auto-Recovery
+@test("11. REST API: DELETE /api/cache (Cache Cleanup & Demo Preservation)")
+def test_api_clear_cache():
+    res = requests.delete(f"{BASE_URL}/api/cache", timeout=5)
+    assert res.status_code == 200, f"Failed to clear cache: {res.status_code}: {res.text}"
+    data = res.json()
+    assert data.get("status") == "success", f"Clear cache response invalid: {data}"
+
+    # Verify demo.musicxml is auto-recovered/preserved from static/default.musicxml
+    demo_res = requests.get(f"{BASE_URL}/api/cache/demo.musicxml", timeout=5)
+    assert demo_res.status_code == 200, f"demo.musicxml not recovered after cache clear: {demo_res.status_code}"
+    assert len(demo_res.content) > 0, "demo.musicxml is empty"
+    return f"Cache cleared successfully and demo.musicxml preserved ({len(demo_res.content):,} B)"
+
+
 if __name__ == "__main__":
     test_image_optimizer()
     test_score_corrector()
@@ -292,6 +307,7 @@ if __name__ == "__main__":
     test_api_edit()
     test_api_undo_redo()
     test_api_cache_files()
+    test_api_clear_cache()
 
     print("\n" + "=" * 70)
     print(f"📊 TEST SUMMARY: {passed} PASSED, {failed} FAILED out of {passed + failed} total tests")

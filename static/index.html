@@ -11,8 +11,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
 
-  <!-- OpenSheetMusicDisplay (OSMD) -->
-  <script src="https://unpkg.com/opensheetmusicdisplay@1.8.8/build/opensheetmusicdisplay.min.js"></script>
+  <!-- OpenSheetMusicDisplay (OSMD) v1.8.6 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.6/build/opensheetmusicdisplay.min.js"></script>
 
   <!-- Soundfont-Player CDN -->
   <script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script>
@@ -50,6 +50,9 @@
     <div class="header-right">
       <button class="btn btn-secondary" id="btn-new-score" title="데모 악보 없이 새로운 4마디 빈 악보를 생성하여 즉시 편집을 시작합니다.">
         <span class="btn-icon">➕</span> 새 악보 만들기
+      </button>
+      <button class="btn btn-outline" id="btn-clear-cache" title="서버 임시 캐시를 비우고 기본 상태로 초기화합니다.">
+        <span class="btn-icon">🗑️</span> 캐시 정리
       </button>
       <button class="btn btn-accent" id="btn-user-manual" title="사이트 사용 설명서 &amp; 가이드">
         <span class="btn-icon">📖</span> 사용 설명서
