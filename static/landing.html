@@ -601,6 +601,104 @@
             font-weight: 500;
         }
 
+        /* ===== RENDER CLOUD MEMORY NOTICE BANNER ===== */
+        .render-notice-banner {
+            background: linear-gradient(135deg, rgba(254, 243, 199, 0.95) 0%, rgba(254, 235, 200, 0.95) 100%);
+            border: 2px solid #f59e0b;
+            border-radius: 20px;
+            padding: 1.5rem 1.75rem;
+            margin: 2rem 0 2.5rem 0;
+            display: flex;
+            gap: 1.25rem;
+            align-items: flex-start;
+            box-shadow: 0 8px 24px rgba(217, 119, 6, 0.12);
+        }
+
+        .notice-icon {
+            font-size: 2.2rem;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+
+        .notice-content {
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+            flex: 1;
+        }
+
+        .notice-title {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: #92400e;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .notice-badge {
+            background: #fde68a;
+            color: #92400e;
+            font-size: 0.75rem;
+            font-weight: 800;
+            padding: 0.2rem 0.6rem;
+            border-radius: 20px;
+            border: 1px solid #f59e0b;
+        }
+
+        .notice-desc {
+            font-size: 0.92rem;
+            color: #78350f;
+            line-height: 1.65;
+        }
+
+        .notice-desc strong {
+            color: #b45309;
+            font-weight: 800;
+        }
+
+        .notice-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-top: 0.35rem;
+        }
+
+        .btn-notice-gh {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: #1f2937;
+            color: #ffffff;
+            font-size: 0.86rem;
+            font-weight: 700;
+            padding: 0.5rem 1.1rem;
+            border-radius: 20px;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+        }
+
+        .btn-notice-gh:hover {
+            background: #111827;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        }
+
+        .notice-code {
+            font-family: 'Fira Code', monospace;
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(217, 119, 6, 0.3);
+            color: #92400e;
+            padding: 0.45rem 0.85rem;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            overflow-x: auto;
+            max-width: 100%;
+        }
+
         /* ===== FOOTER ===== */
         .poster-footer {
             text-align: center;
@@ -650,6 +748,11 @@
                 <span>📄</span> 학술 보고서 전문
             </button>
         </li>
+        <li>
+            <a href="https://github.com/yjchoi101222/ai_steam" target="_blank" class="tab-btn" style="text-decoration: none;">
+                <span>🐙</span> GitHub
+            </a>
+        </li>
     </ul>
 </nav>
 
@@ -690,6 +793,31 @@
                 </button>
             </div>
         </header>
+
+        <!-- ⚠️ Render 클라우드 메모리(512MB) 제약 및 로컬 구동 권장 안내 배너 -->
+        <div class="render-notice-banner">
+            <div class="notice-icon">⚠️</div>
+            <div class="notice-content">
+                <div class="notice-title">
+                    <span>Render 무료 클라우드(512MB RAM) 제약 및 로컬 고속 실행 권장 안내</span>
+                    <span class="notice-badge">Free Tier Memory Notice</span>
+                </div>
+                <p class="notice-desc">
+                    현재 온라인 웹 서비스는 Render.com의 무료 플랜(<strong>0.1 vCPU, 512MB RAM</strong>) 환경에서 호스팅되어 동작하고 있습니다.
+                    <br>
+                    단선율 및 4~8마디 내외의 악보는 정상 분석되지만, <strong>마디 수가 많거나(다단 대보표 10마디 이상), 해상도가 높고 기호가 매우 밀집된 복잡한 악보</strong>의 경우 CNN 딥러닝 추론 시 클라우드 512MB 메모리가 초과(OOM Crash)되어 서버가 자동으로 재시작될 수 있습니다.
+                    <br>
+                    복잡한 악보를 메모리 한도 없이 무제한으로 초고속 인식·편집하고자 하실 경우, 아래 <strong>GitHub 저장소 코드를 내려받아 로컬 PC 환경에서 실행</strong>하시는 것을 적극 권장합니다.
+                </p>
+                <div class="notice-actions">
+                    <a href="https://github.com/yjchoi101222/ai_steam" target="_blank" class="btn-notice-gh">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                        <span>GitHub 저장소 바로가기</span>
+                    </a>
+                    <code class="notice-code">git clone https://github.com/yjchoi101222/ai_steam.git &amp;&amp; pip install -r requirements.txt &amp;&amp; python -m uvicorn main:app --port 8000</code>
+                </div>
+            </div>
+        </div>
 
         <!-- ===== GRID BODY ===== -->
         <main class="poster-grid">
@@ -802,7 +930,7 @@
 
         <!-- ===== FOOTER ===== -->
         <footer class="poster-footer">
-            <p>Copyright © 2026 송도고등학교 (최영준, 김성원, 김재영, 남우송) · 지도교사 정보과학부 · <a onclick="switchTab('editor')">악보 프로그램 바로가기</a> · <a onclick="switchTab('report')">학술 보고서 보기</a></p>
+            <p>Copyright © 2026 송도고등학교 (최영준, 김성원, 김재영, 남우송) · 지도교사 정보과학부 · <a onclick="switchTab('editor')">악보 프로그램</a> · <a onclick="switchTab('report')">학술 보고서</a> · <a href="https://github.com/yjchoi101222/ai_steam" target="_blank">GitHub 저장소 🐙</a></p>
         </footer>
     </div>
 </div>

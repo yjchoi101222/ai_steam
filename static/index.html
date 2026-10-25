@@ -56,6 +56,9 @@
       <a href="/report" class="btn btn-outline" style="text-decoration: none;" title="송도고등학교 학술 보고서 (논문 포스터) 보기">
         <span class="btn-icon">📄</span> 학술 보고서
       </a>
+      <a href="https://github.com/yjchoi101222/ai_steam" target="_blank" class="btn btn-outline" style="text-decoration: none;" title="GitHub 소스코드 저장소">
+        <span class="btn-icon">🐙</span> GitHub
+      </a>
       <button class="btn btn-secondary" id="btn-new-score" title="데모 악보 없이 새로운 4마디 빈 악보를 생성하여 즉시 편집을 시작합니다.">
         <span class="btn-icon">➕</span> 새 악보
       </button>
@@ -76,6 +79,21 @@
 
   <!-- ==================== MAIN WORKSPACE ==================== -->
   <main class="main-container">
+    <!-- ⚠️ Render 클라우드 메모리 제약 및 로컬 구동 안내 배너 -->
+    <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.88rem; color: var(--text-main);">
+        <span style="font-size: 1.4rem;">⚠️</span>
+        <div>
+          <strong style="color: #f59e0b;">Render 무료 클라우드(512MB RAM) 안내:</strong>
+          마디 수가 많거나(10마디 이상 대보표), 고해상도 다단 악보는 클라우드 메모리 초과로 서버가 재시작될 수 있습니다. 복잡한 악보는 
+          <a href="https://github.com/yjchoi101222/ai_steam" target="_blank" style="color: #38bdf8; font-weight: 700; text-decoration: underline;">GitHub 소스코드</a>를 내려받아 로컬 환경에서 실행하시면 제한 없이 고속으로 인식됩니다.
+        </div>
+      </div>
+      <a href="https://github.com/yjchoi101222/ai_steam" target="_blank" class="btn btn-secondary" style="font-size: 0.82rem; padding: 0.4rem 0.9rem; text-decoration: none; white-space: nowrap;">
+        <span>🐙</span> GitHub 로컬 실행 가이드
+      </a>
+    </div>
+
     <!-- PIPELINE 3-COLUMN CARDS -->
     <section class="pipeline-section">
       <div class="pipeline-grid">

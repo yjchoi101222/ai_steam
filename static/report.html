@@ -467,7 +467,8 @@
         <span>🎹</span> MuseAI 학술 보고서
     </a>
     <div class="nav-links">
-        <a href="/" class="btn-nav btn-nav-home"><span>🏠</span> 홈 (프로젝트 소개)</a>
+        <a href="/" class="btn-nav btn-nav-home"><span>🏠</span> 홈 (소개)</a>
+        <a href="https://github.com/yjchoi101222/ai_steam" target="_blank" class="btn-nav btn-nav-home"><span>🐙</span> GitHub</a>
         <button onclick="window.print()" class="btn-nav btn-nav-print"><span>🖨️</span> 인쇄 / PDF 저장</button>
         <a href="/editor" class="btn-nav btn-nav-editor"><span>🚀</span> AI 악보 에디터 바로가기</a>
     </div>
@@ -971,6 +972,14 @@
                 <p style="font-size: 0.88rem; color: #475569; margin-top: 0.5rem;">
                     대안 호스팅으로 Hugging Face Spaces(무료 16GB RAM, 2 vCPU), Railway.app, Fly.io를 소개하며, 로컬에서는 <span class="code-pill">uvicorn main:app --port 8000</span>으로 실행한다.
                 </p>
+
+                <div class="content-box" style="margin-top: 1rem; background: #fef3c7; border: 1px solid #f59e0b;">
+                    <strong style="color: #92400e; font-size: 0.95rem;">⚠️ 복잡한 악보의 클라우드 메모리(512MB) 초과 및 로컬 실행 권장:</strong>
+                    <p style="font-size: 0.88rem; color: #78350f; margin-top: 0.5rem; line-height: 1.65;">
+                        Render 무료 플랜(512MB RAM)의 하드웨어 한계로 인해, <strong>마디 수가 많거나(10마디 이상 대보표), 고해상도 다단 악보 등 객체 밀집도가 매우 높은 악보</strong>는 OMR 딥러닝 추론 중 Out of Memory 크래시가 발생할 수 있습니다. 
+                        따라서 복잡한 악보는 <a href="https://github.com/yjchoi101222/ai_steam" target="_blank" style="color: #b45309; font-weight: bold; text-decoration: underline;">GitHub 소스코드 저장소</a>를 로컬 PC로 클론하여 실행(<span class="code-pill">git clone ... &amp;&amp; uvicorn main:app --port 8000</span>)하면 하드웨어 제약 없이 고속으로 분석할 수 있습니다.
+                    </p>
+                </div>
             </section>
 
         </div>
