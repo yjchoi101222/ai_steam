@@ -105,12 +105,33 @@ async def health_check():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def serve_index():
-    """메인 웹 에디터 인터페이스를 반환합니다."""
+async def serve_landing():
+    """MuseAI 프로젝트 소개 랜딩 페이지(포스터)를 반환합니다."""
+    landing_path = os.path.join(STATIC_DIR, "landing.html")
+    if os.path.exists(landing_path):
+        return FileResponse(landing_path)
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return HTMLResponse("<h1>MuseAI: static/landing.html 파일을 찾을 수 없습니다.</h1>")
+
+
+@app.get("/editor", response_class=HTMLResponse)
+async def serve_editor():
+    """인터랙티브 AI 악보 에디터 화면을 반환합니다."""
     index_path = os.path.join(STATIC_DIR, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
     return HTMLResponse("<h1>AI-STEAM 악보 에디터: static/index.html 파일을 찾을 수 없습니다.</h1>")
+
+
+@app.get("/report", response_class=HTMLResponse)
+async def serve_report():
+    """송도고등학교 MuseAI 학술 보고서 (논문 포스터) 화면을 반환합니다."""
+    report_path = os.path.join(STATIC_DIR, "report.html")
+    if os.path.exists(report_path):
+        return FileResponse(report_path)
+    return HTMLResponse("<h1>MuseAI 학술 보고서: static/report.html 파일을 찾을 수 없습니다.</h1>")
 
 
 @app.post("/api/preprocess")

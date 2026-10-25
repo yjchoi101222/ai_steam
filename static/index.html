@@ -23,13 +23,15 @@
   <!-- ==================== TOP NAVIGATION ==================== -->
   <header class="app-header">
     <div class="header-left">
-      <div class="logo-group">
-        <span class="logo-icon">🎹</span>
-        <div class="logo-text">
-          <h1>AI-STEAM <span class="badge-version">v2.0</span></h1>
-          <p class="logo-sub">인터랙티브 AI 악보 에디터 &amp; OMR 스튜디오</p>
+      <a href="/" style="text-decoration: none; color: inherit; display: flex; align-items: center;" title="MuseAI 프로젝트 소개 홈으로 이동">
+        <div class="logo-group">
+          <span class="logo-icon">🎹</span>
+          <div class="logo-text">
+            <h1>MuseAI <span class="badge-version">v2.0</span></h1>
+            <p class="logo-sub">송도고등학교 AI-STEAM 악보 에디터 &amp; OMR 스튜디오</p>
+          </div>
         </div>
-      </div>
+      </a>
     </div>
 
     <div class="header-center">
@@ -48,14 +50,20 @@
     </div>
 
     <div class="header-right">
+      <a href="/" class="btn btn-outline" style="text-decoration: none;" title="MuseAI 프로젝트 소개 홈으로 이동">
+        <span class="btn-icon">🏠</span> 프로젝트 소개
+      </a>
+      <a href="/report" class="btn btn-outline" style="text-decoration: none;" title="송도고등학교 학술 보고서 (논문 포스터) 보기">
+        <span class="btn-icon">📄</span> 학술 보고서
+      </a>
       <button class="btn btn-secondary" id="btn-new-score" title="데모 악보 없이 새로운 4마디 빈 악보를 생성하여 즉시 편집을 시작합니다.">
-        <span class="btn-icon">➕</span> 새 악보 만들기
+        <span class="btn-icon">➕</span> 새 악보
       </button>
       <button class="btn btn-outline" id="btn-clear-cache" title="서버 임시 캐시를 비우고 기본 상태로 초기화합니다.">
         <span class="btn-icon">🗑️</span> 캐시 정리
       </button>
       <button class="btn btn-accent" id="btn-user-manual" title="사이트 사용 설명서 &amp; 가이드">
-        <span class="btn-icon">📖</span> 사용 설명서
+        <span class="btn-icon">📖</span> 설명서
       </button>
       <button class="btn btn-icon-only" id="btn-theme-toggle" title="다크/라이트 테마 전환">
         <span id="theme-icon">🌙</span>
