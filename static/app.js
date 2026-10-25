@@ -817,7 +817,7 @@ function pollExtractStatus(jobId) {
     if (state.pollInterval) clearInterval(state.pollInterval);
 
     let pollCount = 0;
-    const MAX_POLLS = 100; // 100 * 1.5초 = 150초 (2분 30초 타임아웃 안전장치)
+    const MAX_POLLS = 400; // 400 * 1.5초 = 600초 (10분 타임아웃, 백엔드 엔진 최대 처리 시간과 일치)
     let consecutiveErrors = 0;
 
     state.pollInterval = setInterval(async () => {
@@ -827,7 +827,7 @@ function pollExtractStatus(jobId) {
         dom.btnCancelExtract.classList.add("hidden");
         dom.btnExtract.disabled = false;
         setStepStatus(dom.statusExtract, "error", "시간 초과");
-        const timeoutMsg = "악보 분석 시간이 초과되었습니다 (2분 30초 초과). [모드 전환 후 재시도]를 권장합니다.";
+        const timeoutMsg = "악보 분석 시간이 초과되었습니다 (10분 초과). [모드 전환 후 재시도]를 권장합니다.";
         showOmrFailure(timeoutMsg);
         logToConsole(timeoutMsg, "error");
         reject(new Error(timeoutMsg));
@@ -838,12 +838,12 @@ function pollExtractStatus(jobId) {
         const res = await fetch(`/api/extract/status/${jobId}`);
         if (!res.ok) {
           consecutiveErrors++;
-          if (consecutiveErrors >= 4) {
+          if (consecutiveErrors >= 8) {
             clearInterval(state.pollInterval);
             dom.btnCancelExtract.classList.add("hidden");
             dom.btnExtract.disabled = false;
             setStepStatus(dom.statusExtract, "error", "서버 응답 없음");
-            const serverErrMsg = "서버 응답이 없습니다 (서버 재시작 감지). [다시 시도]를 눌러주세요.";
+            const serverErrMsg = "서버 응답이 없습니다 (연결 끊김 감지). [다시 시도]를 눌러주세요.";
             showOmrFailure(serverErrMsg);
             logToConsole(serverErrMsg, "error");
             reject(new Error(serverErrMsg));
