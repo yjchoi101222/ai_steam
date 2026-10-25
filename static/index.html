@@ -282,6 +282,9 @@
           <a href="/api/cache/demo.musicxml" class="btn btn-outline btn-sm" id="btn-dl-xml-toolbar" download="score.musicxml" title="MusicXML 악보 파일 다운로드">
             <span>📄</span> XML 받기
           </a>
+          <a href="#eval-section" class="btn btn-warning btn-sm" id="btn-quick-eval" title="사용자 연주 평가 스튜디오로 스크롤 이동">
+            <span>🎯</span> AI 연주 평가
+          </a>
         </div>
 
         <div class="osmd-zoom-controls">
@@ -398,6 +401,240 @@
         <div class="piano-keyboard-wrapper">
           <div class="piano-keyboard" id="piano-keyboard">
             <!-- 61 keys dynamically generated via JavaScript -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 🎯 AI PERFORMANCE EVALUATION & FEEDBACK SECTION ==================== -->
+    <section class="eval-section card" id="eval-section">
+      <div class="card-header eval-header">
+        <div class="eval-title-group">
+          <span class="step-num eval-badge">🎯 AI 코치</span>
+          <div>
+            <h3>사용자 연주 평가 &amp; AI 음악 피드백</h3>
+            <p class="eval-sub">마이크 실시간 녹음, 가상 건반 연주, 또는 오디오(WAV)/MIDI 파일을 업로드하여 음정·박자·완성도를 AI로 정밀 채점받으세요.</p>
+          </div>
+        </div>
+        <div class="eval-header-actions">
+          <button class="btn btn-warning btn-sm" id="btn-eval-demo" title="시뮬레이션 연주 데이터를 이용해 원클릭으로 AI 채점 리포트를 즉시 확인합니다.">
+            <span>🧪</span> 데모 연주로 즉시 평가 (1-Click Test)
+          </button>
+        </div>
+      </div>
+
+      <div class="card-body">
+        <!-- 1. Input Mode Tabs -->
+        <div class="eval-mode-tabs">
+          <button class="eval-tab-btn active" data-mode="mic" id="tab-mode-mic">
+            <span>🎙️</span> 마이크 실시간 녹음
+          </button>
+          <button class="eval-tab-btn" data-mode="live" id="tab-mode-live">
+            <span>🎹</span> 가상 건반/키보드 실시간 연주
+          </button>
+          <button class="eval-tab-btn" data-mode="upload" id="tab-mode-upload">
+            <span>📁</span> 연주 파일 업로드 (WAV / MIDI)
+          </button>
+        </div>
+
+        <!-- 2. Mode Panels -->
+        <!-- Mode A: Mic Recording -->
+        <div class="eval-panel active" id="panel-eval-mic">
+          <div class="mic-controls-box">
+            <div class="mic-status-indicator" id="mic-status-text">
+              <span class="mic-pulse-dot" id="mic-pulse"></span>
+              <span id="mic-status-label">마이크 준비 완료. 악기를 켜고 연주 준비를 마친 뒤 [연주 녹음 시작]을 누르세요.</span>
+            </div>
+
+            <!-- Volume / Audio Activity Meter -->
+            <div class="mic-meter-wrapper">
+              <div class="mic-meter-bar" id="mic-meter-fill"></div>
+            </div>
+
+            <div class="mic-actions">
+              <button class="btn btn-primary" id="btn-mic-record-toggle">
+                <span id="mic-rec-icon">🎙️</span> <span id="mic-rec-text">연주 녹음 시작</span>
+              </button>
+              <button class="btn btn-accent hidden" id="btn-mic-eval-submit">
+                <span>🎯</span> 녹음본 AI 평가 실행
+              </button>
+              <span class="mic-timer" id="mic-timer">00:00</span>
+            </div>
+
+            <div class="eval-tips-box">
+              <p>💡 <strong>팁</strong>: 상단 <strong>[▶ 재생]</strong> 버튼의 템포(BPM)를 확인하고, 메트로놈 박자에 맞춰 연주하면 높은 리듬 점수를 받을 수 있습니다.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mode B: Live Keyboard Recording -->
+        <div class="eval-panel" id="panel-eval-live">
+          <div class="live-rec-box">
+            <div class="live-rec-status">
+              <span class="rec-status-badge" id="live-rec-badge">대기 중</span>
+              <span id="live-rec-count-text">기록된 음표: <strong>0</strong>개</span>
+            </div>
+            <p class="live-rec-desc">
+              [연주 기록 시작]을 누른 뒤, 위의 <strong>인터랙티브 61건반</strong>이나 컴퓨터 키보드(C~B)로 악보를 연주하세요.<br>
+              타건된 모든 음표와 실시간 타이밍이 1ms 단위로 정밀 캡처됩니다.
+            </p>
+            <div class="live-rec-actions">
+              <button class="btn btn-primary" id="btn-live-record-toggle">
+                <span id="live-rec-icon">🔴</span> <span id="live-rec-text">연주 기록 시작</span>
+              </button>
+              <button class="btn btn-accent" id="btn-live-eval-submit" disabled>
+                <span>🎯</span> 기록된 연주 채점하기
+              </button>
+              <button class="btn btn-outline btn-sm" id="btn-live-reset">
+                <span>↺</span> 기록 초기화
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mode C: File Upload -->
+        <div class="eval-panel" id="panel-eval-upload">
+          <div class="upload-eval-box">
+            <div class="dropzone eval-dropzone" id="eval-dropzone">
+              <input type="file" id="eval-file-input" accept=".wav,.wave,.mid,.midi" class="hidden-input">
+              <div class="dropzone-content" id="eval-dropzone-prompt">
+                <span class="drop-icon">🎵</span>
+                <p><strong>연주 오디오(WAV) 또는 MIDI 파일</strong>을 끌어다 놓거나 클릭하여 선택하세요.</p>
+                <span class="file-types">지원 포맷: .wav, .wave, .mid, .midi (최대 30MB)</span>
+              </div>
+              <div class="preview-box hidden" id="eval-preview-box">
+                <div class="eval-file-info">
+                  <span class="eval-file-icon">📄</span>
+                  <span class="eval-file-name" id="eval-file-name">performance.mid</span>
+                  <span class="eval-file-size" id="eval-file-size">(12.5 KB)</span>
+                  <button type="button" class="btn-clear-preview" id="btn-clear-eval-file" title="파일 제거">✕</button>
+                </div>
+              </div>
+            </div>
+            <div class="eval-upload-actions">
+              <button class="btn btn-primary flex-1" id="btn-submit-upload-eval" disabled>
+                <span>📊</span> 업로드 파일로 AI 평가 실행
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. AI Evaluation Results Dashboard (Initially Hidden, Shown after evaluation) -->
+        <div class="eval-results-dashboard hidden" id="eval-results-dashboard">
+          <div class="dashboard-header">
+            <h4>🏆 AI 연주 평가 종합 리포트</h4>
+            <span class="dashboard-timestamp" id="eval-timestamp">-</span>
+          </div>
+
+          <div class="dashboard-overview">
+            <!-- Score & Grade Card -->
+            <div class="score-card">
+              <div class="score-ring-wrapper">
+                <div class="score-number" id="eval-score-num">--</div>
+                <div class="score-total">/ 100점</div>
+              </div>
+              <div class="grade-badge" id="eval-grade-badge">A등급</div>
+              <div class="grade-title" id="eval-grade-title">우수 (Excellent)</div>
+            </div>
+
+            <!-- Metrics Bars -->
+            <div class="metrics-card">
+              <div class="metric-row">
+                <div class="metric-labels">
+                  <span>🎯 음정 정확도 (Pitch)</span>
+                  <strong id="eval-pitch-val">--%</strong>
+                </div>
+                <div class="metric-bar-bg">
+                  <div class="metric-bar-fill fill-pitch" id="eval-pitch-bar" style="width: 0%"></div>
+                </div>
+              </div>
+
+              <div class="metric-row">
+                <div class="metric-labels">
+                  <span>⏱️ 리듬 &amp; 템포 정확도 (Rhythm)</span>
+                  <strong id="eval-rhythm-val">--%</strong>
+                </div>
+                <div class="metric-bar-bg">
+                  <div class="metric-bar-fill fill-rhythm" id="eval-rhythm-bar" style="width: 0%"></div>
+                </div>
+              </div>
+
+              <div class="metric-row">
+                <div class="metric-labels">
+                  <span>📈 연주 완성도 (Completeness)</span>
+                  <strong id="eval-comp-val">--%</strong>
+                </div>
+                <div class="metric-bar-bg">
+                  <div class="metric-bar-fill fill-comp" id="eval-comp-bar" style="width: 0%"></div>
+                </div>
+              </div>
+
+              <div class="tempo-stat-row">
+                <span>추정 연주 템포: <strong id="eval-bpm-stat">-- BPM</strong></span>
+                <span>목표 악보 템포: <strong id="eval-target-bpm">-- BPM</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Coach Feedback Message -->
+          <div class="coach-comment-box">
+            <div class="coach-avatar">🧠 AI 마에스트로 총평:</div>
+            <pre class="coach-text" id="eval-coach-comment">평가 대기 중...</pre>
+          </div>
+
+          <!-- Statistics Counters -->
+          <div class="stats-counter-grid">
+            <div class="stat-pill pill-correct">
+              <span class="stat-num" id="stat-correct">0</span>
+              <span class="stat-lbl">✅ 완벽한 음</span>
+            </div>
+            <div class="stat-pill pill-pitch-err">
+              <span class="stat-num" id="stat-pitch-err">0</span>
+              <span class="stat-lbl">❌ 음정 오류</span>
+            </div>
+            <div class="stat-pill pill-timing-err">
+              <span class="stat-num" id="stat-timing-err">0</span>
+              <span class="stat-lbl">⚠️ 박자 편차</span>
+            </div>
+            <div class="stat-pill pill-missed">
+              <span class="stat-num" id="stat-missed">0</span>
+              <span class="stat-lbl">🄌 누락된 음</span>
+            </div>
+            <div class="stat-pill pill-extra">
+              <span class="stat-num" id="stat-extra">0</span>
+              <span class="stat-lbl">➕ 추가 오음</span>
+            </div>
+          </div>
+
+          <!-- Measure-by-Measure Diagnostic Table -->
+          <div class="diagnostic-section">
+            <div class="diagnostic-header">
+              <h5>📋 마디별 세부 진단 내역</h5>
+              <div class="diag-filter-group" id="diag-filter-group">
+                <button class="btn btn-xs btn-outline active" data-filter="all">전체</button>
+                <button class="btn btn-xs btn-outline" data-filter="correct">정확</button>
+                <button class="btn btn-xs btn-outline" data-filter="pitch_error">음정 오류</button>
+                <button class="btn btn-xs btn-outline" data-filter="timing_error">박자 편차</button>
+                <button class="btn btn-xs btn-outline" data-filter="missed">누락</button>
+              </div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="diagnostic-table">
+                <thead>
+                  <tr>
+                    <th>마디</th>
+                    <th>기대 음표</th>
+                    <th>실제 연주</th>
+                    <th>판정</th>
+                    <th>AI 코칭 상세 피드백</th>
+                  </tr>
+                </thead>
+                <tbody id="eval-diagnostic-tbody">
+                  <!-- Dynamically populated via app.js -->
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

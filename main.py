@@ -8,7 +8,9 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import sys
 import io
-from typing import Optional, Dict, Any
+import tempfile
+import shutil
+from typing import Optional, Dict, Any, List
 
 # Windows cp949 인코딩 오류 완전 방지 (in-place reconfigure)
 if hasattr(sys.stdout, 'reconfigure'):
@@ -29,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from core.pipeline import SheetMusicAnalyzerPipeline
+from core.evaluator import PerformanceEvaluator, evaluator
 
 app = FastAPI(
     title="AI-STEAM Interactive Sheet Music Studio",
@@ -93,6 +96,35 @@ class NewScoreRequest(BaseModel):
     key_signature: str = "C"
     measures_count: int = 4
     is_grand_staff: bool = True
+
+
+class LivePerformanceRequest(BaseModel):
+    file_hash: str = "demo"
+    target_bpm: float = 100.0
+    notes: List[Dict[str, Any]] = []
+
+
+def get_score_xml_path(file_hash: str) -> str:
+    """주어진 file_hash에 대응하는 최적화된 MusicXML 악보 파일 경로를 탐색하여 반환합니다."""
+    clean_hash = os.path.basename(file_hash)
+    opt_path = os.path.join(pipeline.cache_dir, f"{clean_hash}_opt.musicxml")
+    if os.path.exists(opt_path):
+        return opt_path
+    base_path = os.path.join(pipeline.cache_dir, f"{clean_hash}.musicxml")
+    if os.path.exists(base_path):
+        return base_path
+    if clean_hash.startswith("demo"):
+        pipeline._ensure_default_demo()
+        demo_path = os.path.join(pipeline.cache_dir, "demo_opt.musicxml")
+        if os.path.exists(demo_path):
+            return demo_path
+        demo_fallback = os.path.join(pipeline.cache_dir, "demo.musicxml")
+        if os.path.exists(demo_fallback):
+            return demo_fallback
+    static_default = os.path.join(STATIC_DIR, "default.musicxml")
+    if os.path.exists(static_default):
+        return static_default
+    raise FileNotFoundError(f"악보 파일을 찾을 수 없습니다: {file_hash}")
 
 
 # ==================== REST API 라우터 ====================
@@ -291,6 +323,114 @@ async def clear_cache():
         return {"status": "success", "message": "캐시가 성공적으로 초기화되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"캐시 삭제 실패: {str(e)}")
+
+
+# ==================== AI PERFORMANCE EVALUATION API ====================
+
+@app.post("/api/evaluate/live")
+async def evaluate_live(req: LivePerformanceRequest):
+    """[AI 연주 평가] 실시간 가상 건반/마이크 실시간 입력 이벤트 기반 연주 평가"""
+    try:
+        xml_path = get_score_xml_path(req.file_hash)
+        expected_notes = evaluator.extract_expected_notes_from_xml(xml_path)
+        eval_result = evaluator.evaluate_performance(
+            expected_notes=expected_notes,
+            played_notes=req.notes,
+            target_bpm=req.target_bpm
+        )
+        return eval_result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"연주 평가 실패: {str(e)}")
+
+
+@app.post("/api/evaluate/upload")
+async def evaluate_upload(
+    file: UploadFile = File(...),
+    file_hash: str = Form("demo"),
+    target_bpm: float = Form(100.0)
+):
+    """[AI 연주 평가] 사용자 업로드 오디오(WAV) 또는 MIDI 파일 기반 연주 평가"""
+    try:
+        xml_path = get_score_xml_path(file_hash)
+        expected_notes = evaluator.extract_expected_notes_from_xml(xml_path)
+
+        filename = file.filename.lower()
+        suffix = os.path.splitext(filename)[1]
+
+        # 임시 파일 저장 후 분석 (512MB RAM 안전 격리)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+            shutil.copyfileobj(file.file, tmp)
+
+        try:
+            if suffix in [".mid", ".midi"]:
+                played_notes = evaluator.extract_notes_from_midi(tmp_path)
+            elif suffix in [".wav", ".wave"]:
+                played_notes = evaluator.extract_notes_from_wav(tmp_path)
+            else:
+                try:
+                    played_notes = evaluator.extract_notes_from_wav(tmp_path)
+                except Exception:
+                    raise ValueError(f"지원하지 않는 오디오 형식입니다 ({suffix}). .wav 또는 .mid 파일을 업로드해 주세요.")
+
+            eval_result = evaluator.evaluate_performance(
+                expected_notes=expected_notes,
+                played_notes=played_notes,
+                target_bpm=target_bpm
+            )
+            return eval_result
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"연주 파일 평가 실패: {str(e)}")
+
+
+@app.post("/api/evaluate/demo")
+async def evaluate_demo(
+    file_hash: str = "demo",
+    target_bpm: float = 100.0
+):
+    """[AI 연주 평가] 원클릭 시연용 데모 연주 평가 (시뮬레이션 연주를 통한 즉각적인 AI 피드백 검증)"""
+    try:
+        xml_path = get_score_xml_path(file_hash)
+        expected_notes = evaluator.extract_expected_notes_from_xml(xml_path)
+
+        seconds_per_beat = 60.0 / target_bpm
+        simulated_notes = []
+        for idx, exp in enumerate(expected_notes):
+            # 5번째 음표에서 반음 샵 오차 모의 (자연스러운 미스타건 시뮬레이션)
+            if idx == 4:
+                midi = exp["midi"] + 1
+                step = exp["pitch"][0] + "#" + exp["pitch"][-1]
+            else:
+                midi = exp["midi"]
+                step = exp["pitch"]
+
+            # 약간의 인간적인 타이밍 지터 (-0.03 ~ +0.05초)
+            timing_jitter = ((idx * 7) % 11 - 5) * 0.008
+            sim_time = round(exp["offset"] * seconds_per_beat + timing_jitter, 3)
+            sim_dur = round(exp["duration"] * seconds_per_beat * 0.95, 3)
+
+            simulated_notes.append({
+                "pitch": step,
+                "midi": midi,
+                "time": sim_time,
+                "duration": sim_dur,
+                "velocity": 85
+            })
+
+        eval_result = evaluator.evaluate_performance(
+            expected_notes=expected_notes,
+            played_notes=simulated_notes,
+            target_bpm=target_bpm
+        )
+        return eval_result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"데모 연주 평가 실패: {str(e)}")
 
 
 @app.get("/api/cache/{filename}")

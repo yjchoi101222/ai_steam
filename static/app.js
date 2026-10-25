@@ -157,6 +157,7 @@ window.addEventListener("DOMContentLoaded", () => {
   setupEventListeners();
   setupKeyboardShortcuts();
   tryRestoreFromLocalStorage();
+  initEvaluationStudio();
 });
 
 // 브라우저 자동 재생 정책(Autoplay Policy) 해제를 위한 전역 제스처 언락 리스너
@@ -383,6 +384,11 @@ function initVirtualPiano() {
 function handlePianoKeyClick(pitchName, midi) {
   playTone(pitchName, 0.5);
   highlightPianoKey(pitchName, 400);
+
+  // 실시간 연주 기록 모드인 경우 캡처
+  if (typeof evalState !== "undefined" && evalState.isLiveKeyRecording) {
+    recordLiveKeyNote(pitchName, midi);
+  }
 
   // 음표가 선택되어 있고 수정 모드인 경우 악보 변경 전송
   if (state.isEditMode && state.selectedNote) {
@@ -1887,3 +1893,693 @@ function autoScrollToCursor() {
     }
   }
 }
+
+// ==================== 🎯 AI PERFORMANCE EVALUATION STUDIO ====================
+const evalState = {
+  isMicRecording: false,
+  mediaRecorder: null,
+  recordedAudioChunks: [],
+  micStream: null,
+  micAudioCtx: null,
+  micAnalyser: null,
+  micAnimFrame: null,
+  micRecordStartTime: null,
+  micTimerInterval: null,
+  recordedAudioBlob: null,
+
+  isLiveKeyRecording: false,
+  liveKeyRecordStartTime: null,
+  liveRecordedNotes: [],
+
+  selectedEvalFile: null,
+  lastEvalResult: null
+};
+
+function initEvaluationStudio() {
+  const evalTabBtns = document.querySelectorAll(".eval-tab-btn");
+  const evalPanels = document.querySelectorAll(".eval-panel");
+
+  // 1. 입력 모드 탭 전환
+  evalTabBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.mode;
+      evalTabBtns.forEach(b => b.classList.toggle("active", b === btn));
+      evalPanels.forEach(p => p.classList.toggle("active", p.id === `panel-eval-${mode}`));
+    });
+  });
+
+  // 2. 원클릭 데모 연주 평가 버튼
+  const btnEvalDemo = document.getElementById("btn-eval-demo");
+  if (btnEvalDemo) {
+    btnEvalDemo.addEventListener("click", () => executeDemoEvaluation());
+  }
+
+  // 3. 모드 A: 마이크 실시간 녹음 컨트롤
+  const btnMicToggle = document.getElementById("btn-mic-record-toggle");
+  const btnMicSubmit = document.getElementById("btn-mic-eval-submit");
+  if (btnMicToggle) {
+    btnMicToggle.addEventListener("click", () => toggleMicRecording());
+  }
+  if (btnMicSubmit) {
+    btnMicSubmit.addEventListener("click", () => submitMicEvaluation());
+  }
+
+  // 4. 모드 B: 실시간 건반 연주 기록 컨트롤
+  const btnLiveToggle = document.getElementById("btn-live-record-toggle");
+  const btnLiveSubmit = document.getElementById("btn-live-eval-submit");
+  const btnLiveReset = document.getElementById("btn-live-reset");
+  if (btnLiveToggle) {
+    btnLiveToggle.addEventListener("click", () => toggleLiveKeyRecording());
+  }
+  if (btnLiveSubmit) {
+    btnLiveSubmit.addEventListener("click", () => submitLiveKeyEvaluation());
+  }
+  if (btnLiveReset) {
+    btnLiveReset.addEventListener("click", () => resetLiveKeyRecording());
+  }
+
+  // 5. 모드 C: 연주 파일 업로드 컨트롤
+  setupEvalFileUpload();
+
+  // 6. 진단 내역 필터링 버튼
+  setupDiagnosticFilterButtons();
+}
+
+// -------------------------------------------------------------
+// Mode A: Microphone Live Recording
+// -------------------------------------------------------------
+async function toggleMicRecording() {
+  if (evalState.isMicRecording) {
+    await stopMicRecording();
+  } else {
+    await startMicRecording();
+  }
+}
+
+async function startMicRecording() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert("이 브라우저는 마이크 실시간 녹음을 지원하지 않습니다. 크롬 또는 엣지 브라우저를 이용해 주세요.");
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    evalState.micStream = stream;
+    evalState.recordedAudioChunks = [];
+    evalState.recordedAudioBlob = null;
+    evalState.isMicRecording = true;
+
+    // Web Audio 볼륨 레벨 미터 연결
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      evalState.micAudioCtx = new AudioContextClass();
+      const source = evalState.micAudioCtx.createMediaStreamSource(stream);
+      const analyser = evalState.micAudioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      evalState.micAnalyser = analyser;
+
+      const meterFill = document.getElementById("mic-meter-fill");
+      const pcmData = new Uint8Array(analyser.frequencyBinCount);
+
+      const updateMeter = () => {
+        if (!evalState.isMicRecording) return;
+        analyser.getByteFrequencyData(pcmData);
+        let sum = 0;
+        for (let i = 0; i < pcmData.length; i++) sum += pcmData[i];
+        const avg = sum / pcmData.length;
+        const pct = Math.min(100, Math.round((avg / 128.0) * 100));
+        if (meterFill) meterFill.style.width = `${pct}%`;
+        evalState.micAnimFrame = requestAnimationFrame(updateMeter);
+      };
+      updateMeter();
+    }
+
+    // MediaRecorder 초기화
+    const options = MediaRecorder.isTypeSupported("audio/webm") ? { mimeType: "audio/webm" } : {};
+    const mediaRecorder = new MediaRecorder(stream, options);
+    evalState.mediaRecorder = mediaRecorder;
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) {
+        evalState.recordedAudioChunks.push(e.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      const mimeType = mediaRecorder.mimeType || "audio/webm";
+      evalState.recordedAudioBlob = new Blob(evalState.recordedAudioChunks, { type: mimeType });
+      const submitBtn = document.getElementById("btn-mic-eval-submit");
+      if (submitBtn) {
+        submitBtn.classList.remove("hidden");
+        submitBtn.disabled = false;
+      }
+      const statusLabel = document.getElementById("mic-status-label");
+      if (statusLabel) {
+        statusLabel.textContent = `녹음 완료 (${(evalState.recordedAudioBlob.size / 1024).toFixed(1)} KB). [🎯 녹음본 AI 평가 실행]을 누르세요.`;
+      }
+    };
+
+    mediaRecorder.start(100);
+    evalState.micRecordStartTime = Date.now();
+
+    // UI 갱신
+    const pulseDot = document.getElementById("mic-pulse");
+    const recText = document.getElementById("mic-rec-text");
+    const recIcon = document.getElementById("mic-rec-icon");
+    const statusLabel = document.getElementById("mic-status-label");
+    const submitBtn = document.getElementById("btn-mic-eval-submit");
+
+    if (pulseDot) pulseDot.classList.add("recording");
+    if (recText) recText.textContent = "녹음 중지";
+    if (recIcon) recIcon.textContent = "⏹️";
+    if (statusLabel) statusLabel.textContent = "🔴 녹음 중... 악보를 보며 악기를 연주하세요.";
+    if (submitBtn) submitBtn.classList.add("hidden");
+
+    // 타이머 갱신
+    const timerEl = document.getElementById("mic-timer");
+    if (evalState.micTimerInterval) clearInterval(evalState.micTimerInterval);
+    evalState.micTimerInterval = setInterval(() => {
+      const elapsedSec = Math.floor((Date.now() - evalState.micRecordStartTime) / 1000);
+      const mins = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+      const secs = String(elapsedSec % 60).padStart(2, "0");
+      if (timerEl) timerEl.textContent = `${mins}:${secs}`;
+    }, 1000);
+
+    logToConsole("🎙️ 실시간 마이크 연주 녹음이 시작되었습니다.", "system");
+  } catch (err) {
+    console.error("마이크 접근 오류:", err);
+    alert(`마이크 접근 실패: ${err.message}. 브라우저의 마이크 권한을 허용해 주세요.`);
+  }
+}
+
+async function stopMicRecording() {
+  evalState.isMicRecording = false;
+
+  if (evalState.micTimerInterval) {
+    clearInterval(evalState.micTimerInterval);
+    evalState.micTimerInterval = null;
+  }
+  if (evalState.micAnimFrame) {
+    cancelAnimationFrame(evalState.micAnimFrame);
+    evalState.micAnimFrame = null;
+  }
+  const meterFill = document.getElementById("mic-meter-fill");
+  if (meterFill) meterFill.style.width = "0%";
+
+  if (evalState.mediaRecorder && evalState.mediaRecorder.state !== "inactive") {
+    evalState.mediaRecorder.stop();
+  }
+
+  if (evalState.micStream) {
+    evalState.micStream.getTracks().forEach(t => t.stop());
+    evalState.micStream = null;
+  }
+  if (evalState.micAudioCtx) {
+    try { await evalState.micAudioCtx.close(); } catch (e) {}
+    evalState.micAudioCtx = null;
+  }
+
+  const pulseDot = document.getElementById("mic-pulse");
+  const recText = document.getElementById("mic-rec-text");
+  const recIcon = document.getElementById("mic-rec-icon");
+  if (pulseDot) pulseDot.classList.remove("recording");
+  if (recText) recText.textContent = "다시 녹음하기";
+  if (recIcon) recIcon.textContent = "🔄";
+
+  logToConsole("⏹️ 마이크 연주 녹음이 완료되었습니다. [🎯 녹음본 AI 평가 실행]을 눌러 채점받으세요.", "system");
+}
+
+async function submitMicEvaluation() {
+  if (!evalState.recordedAudioBlob) {
+    alert("녹음된 오디오가 없습니다. 먼저 연주를 녹음해 주세요.");
+    return;
+  }
+
+  const submitBtn = document.getElementById("btn-mic-eval-submit");
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = "<span>⏳</span> AI 분석 중...";
+  }
+
+  logToConsole("🎯 녹음된 연주 오디오를 AI 평가 엔진으로 전송하여 정밀 분석 중...", "system");
+
+  const formData = new FormData();
+  formData.append("file", evalState.recordedAudioBlob, "performance_recording.wav");
+  formData.append("file_hash", state.fileHash || "demo");
+  formData.append("target_bpm", String(state.bpm || 100));
+
+  try {
+    const res = await fetch("/api/evaluate/upload", {
+      method: "POST",
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "평가 처리 실패");
+    }
+    const evalResult = await res.json();
+    renderEvaluationDashboard(evalResult);
+  } catch (err) {
+    console.error("마이크 평가 오류:", err);
+    alert(`연주 평가 오류: ${err.message}`);
+    logToConsole(`마이크 평가 오류: ${err.message}`, "error");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = "<span>🎯</span> 녹음본 AI 평가 실행";
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// Mode B: Live Virtual / Computer Keyboard Recording
+// -------------------------------------------------------------
+function toggleLiveKeyRecording() {
+  evalState.isLiveKeyRecording = !evalState.isLiveKeyRecording;
+
+  const badge = document.getElementById("live-rec-badge");
+  const recText = document.getElementById("live-rec-text");
+  const recIcon = document.getElementById("live-rec-icon");
+  const submitBtn = document.getElementById("btn-live-eval-submit");
+
+  if (evalState.isLiveKeyRecording) {
+    evalState.liveKeyRecordStartTime = Date.now();
+    evalState.liveRecordedNotes = [];
+    if (badge) {
+      badge.textContent = "기록 중...";
+      badge.className = "rec-status-badge active-rec";
+    }
+    if (recText) recText.textContent = "연주 기록 중지";
+    if (recIcon) recIcon.textContent = "⏹️";
+    if (submitBtn) submitBtn.disabled = true;
+    updateLiveRecCountUI();
+    logToConsole("🔴 실시간 건반 연주 기록이 시작되었습니다. 피아노 건반을 눌러 연주하세요.", "system");
+  } else {
+    if (badge) {
+      badge.textContent = `기록 완료 (${evalState.liveRecordedNotes.length}음)`;
+      badge.className = "rec-status-badge";
+    }
+    if (recText) recText.textContent = "다시 기록 시작";
+    if (recIcon) recIcon.textContent = "🔴";
+    if (submitBtn) submitBtn.disabled = evalState.liveRecordedNotes.length === 0;
+    logToConsole(`⏹️ 실시간 건반 연주 기록 종료: 총 ${evalState.liveRecordedNotes.length}개 음표 캡처 완료.`, "system");
+  }
+}
+
+function recordLiveKeyNote(pitchName, midi) {
+  if (!evalState.liveKeyRecordStartTime) {
+    evalState.liveKeyRecordStartTime = Date.now();
+  }
+  const onsetSec = Math.max(0, (Date.now() - evalState.liveKeyRecordStartTime) / 1000.0);
+  evalState.liveRecordedNotes.push({
+    pitch: pitchName,
+    midi: midi || pitchToMidi(pitchName),
+    time: Math.round(onsetSec * 1000) / 1000,
+    duration: 0.45,
+    velocity: 85
+  });
+  updateLiveRecCountUI();
+}
+
+function updateLiveRecCountUI() {
+  const countEl = document.getElementById("live-rec-count-text");
+  if (countEl) {
+    countEl.innerHTML = `기록된 음표: <strong>${evalState.liveRecordedNotes.length}</strong>개`;
+  }
+  const submitBtn = document.getElementById("btn-live-eval-submit");
+  if (submitBtn && !evalState.isLiveKeyRecording) {
+    submitBtn.disabled = evalState.liveRecordedNotes.length === 0;
+  }
+}
+
+function resetLiveKeyRecording() {
+  evalState.isLiveKeyRecording = false;
+  evalState.liveRecordedNotes = [];
+  evalState.liveKeyRecordStartTime = null;
+
+  const badge = document.getElementById("live-rec-badge");
+  const recText = document.getElementById("live-rec-text");
+  const recIcon = document.getElementById("live-rec-icon");
+  const submitBtn = document.getElementById("btn-live-eval-submit");
+
+  if (badge) {
+    badge.textContent = "대기 중";
+    badge.className = "rec-status-badge";
+  }
+  if (recText) recText.textContent = "연주 기록 시작";
+  if (recIcon) recIcon.textContent = "🔴";
+  if (submitBtn) submitBtn.disabled = true;
+
+  updateLiveRecCountUI();
+  logToConsole("건반 연주 기록이 초기화되었습니다.");
+}
+
+async function submitLiveKeyEvaluation() {
+  if (!evalState.liveRecordedNotes || evalState.liveRecordedNotes.length === 0) {
+    alert("기록된 음표가 없습니다. 피아노 건반이나 키보드로 먼저 연주해 주세요.");
+    return;
+  }
+
+  const submitBtn = document.getElementById("btn-live-eval-submit");
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = "<span>⏳</span> 채점 분석 중...";
+  }
+
+  logToConsole("🎯 캡처된 실시간 건반 연주 데이터를 AI 평가 엔진으로 전송하여 채점 중...", "system");
+
+  const payload = {
+    file_hash: state.fileHash || "demo",
+    target_bpm: state.bpm || 100.0,
+    notes: evalState.liveRecordedNotes
+  };
+
+  try {
+    const res = await fetch("/api/evaluate/live", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "평가 처리 실패");
+    }
+    const evalResult = await res.json();
+    renderEvaluationDashboard(evalResult);
+  } catch (err) {
+    console.error("건반 평가 오류:", err);
+    alert(`연주 평가 오류: ${err.message}`);
+    logToConsole(`건반 평가 오류: ${err.message}`, "error");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = "<span>🎯</span> 기록된 연주 채점하기";
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// Mode C: Performance File Upload (WAV / MIDI)
+// -------------------------------------------------------------
+function setupEvalFileUpload() {
+  const dropzone = document.getElementById("eval-dropzone");
+  const fileInput = document.getElementById("eval-file-input");
+  const previewBox = document.getElementById("eval-preview-box");
+  const promptBox = document.getElementById("eval-dropzone-prompt");
+  const fileNameEl = document.getElementById("eval-file-name");
+  const fileSizeEl = document.getElementById("eval-file-size");
+  const clearBtn = document.getElementById("btn-clear-eval-file");
+  const submitBtn = document.getElementById("btn-submit-upload-eval");
+
+  if (!dropzone || !fileInput) return;
+
+  dropzone.addEventListener("click", () => fileInput.click());
+
+  dropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropzone.classList.add("dragover");
+  });
+  dropzone.addEventListener("dragleave", () => {
+    dropzone.classList.remove("dragover");
+  });
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("dragover");
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleEvalFileSelected(e.dataTransfer.files[0]);
+    }
+  });
+
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleEvalFileSelected(e.target.files[0]);
+    }
+  });
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      resetEvalFileUpload();
+    });
+  }
+
+  if (submitBtn) {
+    submitBtn.addEventListener("click", () => submitUploadEvaluation());
+  }
+}
+
+function handleEvalFileSelected(file) {
+  evalState.selectedEvalFile = file;
+
+  const previewBox = document.getElementById("eval-preview-box");
+  const promptBox = document.getElementById("eval-dropzone-prompt");
+  const fileNameEl = document.getElementById("eval-file-name");
+  const fileSizeEl = document.getElementById("eval-file-size");
+  const submitBtn = document.getElementById("btn-submit-upload-eval");
+
+  if (previewBox) previewBox.classList.remove("hidden");
+  if (promptBox) promptBox.classList.add("hidden");
+  if (fileNameEl) fileNameEl.textContent = file.name;
+  if (fileSizeEl) fileSizeEl.textContent = `(${(file.size / 1024).toFixed(1)} KB)`;
+  if (submitBtn) submitBtn.disabled = false;
+
+  logToConsole(`연주 파일 등록됨: ${file.name}`);
+}
+
+function resetEvalFileUpload() {
+  evalState.selectedEvalFile = null;
+  const fileInput = document.getElementById("eval-file-input");
+  const previewBox = document.getElementById("eval-preview-box");
+  const promptBox = document.getElementById("eval-dropzone-prompt");
+  const submitBtn = document.getElementById("btn-submit-upload-eval");
+
+  if (fileInput) fileInput.value = "";
+  if (previewBox) previewBox.classList.add("hidden");
+  if (promptBox) promptBox.classList.remove("hidden");
+  if (submitBtn) submitBtn.disabled = true;
+}
+
+async function submitUploadEvaluation() {
+  if (!evalState.selectedEvalFile) {
+    alert("평가할 연주 파일(WAV 또는 MIDI)을 먼저 선택해 주세요.");
+    return;
+  }
+
+  const submitBtn = document.getElementById("btn-submit-upload-eval");
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = "<span>⏳</span> AI 연주 분석 중...";
+  }
+
+  logToConsole(`🎯 업로드 연주 파일 [${evalState.selectedEvalFile.name}] AI 정밀 평가 중...`, "system");
+
+  const formData = new FormData();
+  formData.append("file", evalState.selectedEvalFile);
+  formData.append("file_hash", state.fileHash || "demo");
+  formData.append("target_bpm", String(state.bpm || 100));
+
+  try {
+    const res = await fetch("/api/evaluate/upload", {
+      method: "POST",
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "평가 처리 실패");
+    }
+    const evalResult = await res.json();
+    renderEvaluationDashboard(evalResult);
+  } catch (err) {
+    console.error("파일 평가 오류:", err);
+    alert(`연주 파일 평가 오류: ${err.message}`);
+    logToConsole(`파일 평가 오류: ${err.message}`, "error");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = "<span>📊</span> 업로드 파일로 AI 평가 실행";
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// Mode D: 1-Click Demo Evaluation Test
+// -------------------------------------------------------------
+async function executeDemoEvaluation() {
+  const btn = document.getElementById("btn-eval-demo");
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = "<span>⏳</span> 데모 채점 중...";
+  }
+
+  logToConsole("🧪 [1-Click Test] 데모 연주 데이터를 이용한 즉각적인 AI 평가 시연을 시작합니다...", "system");
+
+  const fileHash = state.fileHash || "demo";
+  const targetBpm = state.bpm || 100;
+
+  try {
+    const res = await fetch(`/api/evaluate/demo?file_hash=${encodeURIComponent(fileHash)}&target_bpm=${targetBpm}`, {
+      method: "POST"
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "데모 평가 실패");
+    }
+    const evalResult = await res.json();
+    renderEvaluationDashboard(evalResult);
+    logToConsole("🎉 데모 연주 평가 리포트가 성공적으로 생성되었습니다!", "system");
+  } catch (err) {
+    console.error("데모 평가 오류:", err);
+    alert(`데모 평가 실패: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = "<span>🧪</span> 데모 연주로 즉시 평가 (1-Click Test)";
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// Evaluation Results Dashboard Rendering & Diagnostics
+// -------------------------------------------------------------
+function renderEvaluationDashboard(result) {
+  evalState.lastEvalResult = result;
+
+  const dashboard = document.getElementById("eval-results-dashboard");
+  if (!dashboard) return;
+  dashboard.classList.remove("hidden");
+
+  // 부드럽게 대시보드로 스크롤 이동
+  dashboard.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  // 1. 점수 카운트업 애니메이션
+  const scoreEl = document.getElementById("eval-score-num");
+  const targetScore = result.total_score || 0;
+  let currentScore = 0;
+  const scoreStep = Math.max(1, Math.floor(targetScore / 25));
+  const scoreInterval = setInterval(() => {
+    currentScore += scoreStep;
+    if (currentScore >= targetScore) {
+      currentScore = targetScore;
+      clearInterval(scoreInterval);
+    }
+    if (scoreEl) scoreEl.textContent = currentScore;
+  }, 25);
+
+  // 2. 등급 뱃지
+  const gradeBadge = document.getElementById("eval-grade-badge");
+  const gradeTitle = document.getElementById("eval-grade-title");
+  if (gradeBadge) {
+    gradeBadge.textContent = `${result.grade}등급`;
+    gradeBadge.className = `grade-badge grade-${(result.grade || "C").toLowerCase()}`;
+  }
+  if (gradeTitle) {
+    gradeTitle.textContent = result.grade_title || "";
+  }
+
+  // 3. 메트릭 바 (음정, 리듬, 완성도)
+  const pitchVal = document.getElementById("eval-pitch-val");
+  const pitchBar = document.getElementById("eval-pitch-bar");
+  const rhythmVal = document.getElementById("eval-rhythm-val");
+  const rhythmBar = document.getElementById("eval-rhythm-bar");
+  const compVal = document.getElementById("eval-comp-val");
+  const compBar = document.getElementById("eval-comp-bar");
+
+  if (pitchVal) pitchVal.textContent = `${result.pitch_score}%`;
+  if (pitchBar) pitchBar.style.width = `${result.pitch_score}%`;
+  if (rhythmVal) rhythmVal.textContent = `${result.rhythm_score}%`;
+  if (rhythmBar) rhythmBar.style.width = `${result.rhythm_score}%`;
+  if (compVal) compVal.textContent = `${result.completeness}%`;
+  if (compBar) compBar.style.width = `${result.completeness}%`;
+
+  // 템포 통계
+  const bpmStat = document.getElementById("eval-bpm-stat");
+  const targetBpmStat = document.getElementById("eval-target-bpm");
+  if (bpmStat) bpmStat.textContent = `${result.estimated_bpm} BPM`;
+  if (targetBpmStat) targetBpmStat.textContent = `${result.target_bpm} BPM`;
+
+  // 4. AI 코치 총평
+  const coachComment = document.getElementById("eval-coach-comment");
+  if (coachComment) {
+    coachComment.textContent = result.summary || "연주 분석 완료";
+  }
+
+  // 타임스탬프
+  const timestampEl = document.getElementById("eval-timestamp");
+  if (timestampEl) {
+    timestampEl.textContent = `평가 시각: ${new Date().toLocaleTimeString()}`;
+  }
+
+  // 5. 카운터 뱃지
+  const stats = result.statistics || {};
+  const elCorrect = document.getElementById("stat-correct");
+  const elPitchErr = document.getElementById("stat-pitch-err");
+  const elTimingErr = document.getElementById("stat-timing-err");
+  const elMissed = document.getElementById("stat-missed");
+  const elExtra = document.getElementById("stat-extra");
+
+  if (elCorrect) elCorrect.textContent = stats.correct || 0;
+  if (elPitchErr) elPitchErr.textContent = stats.pitch_error || 0;
+  if (elTimingErr) elTimingErr.textContent = stats.timing_error || 0;
+  if (elMissed) elMissed.textContent = stats.missed || 0;
+  if (elExtra) elExtra.textContent = stats.extra || 0;
+
+  // 6. 마디별 세부 진단 테이블 렌더링
+  populateDiagnosticTable(result.details || [], "all");
+}
+
+function populateDiagnosticTable(details, filter = "all") {
+  const tbody = document.getElementById("eval-diagnostic-tbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  const filteredDetails = details.filter(item => {
+    if (filter === "all") return true;
+    return item.status === filter;
+  });
+
+  if (filteredDetails.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="5" style="text-align: center; color: var(--text-dim); padding: 1.5rem;">선택한 필터 조건에 해당하는 음표가 없습니다.</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+
+  const statusLabels = {
+    correct: "정확",
+    pitch_error: "음정 오류",
+    timing_error: "박자 편차",
+    missed: "누락됨",
+    extra: "추가 오음"
+  };
+
+  filteredDetails.forEach(item => {
+    const tr = document.createElement("tr");
+
+    const badgeClass = `diag-status-${item.status || "correct"}`;
+    const badgeText = statusLabels[item.status] || item.status;
+
+    tr.innerHTML = `
+      <td><strong>${item.measure === "-" ? "-" : item.measure + "마디"}</strong></td>
+      <td><span style="font-family: var(--font-mono); font-weight: 600;">${item.expected_pitch || "-"}</span></td>
+      <td><span style="font-family: var(--font-mono); font-weight: 600; color: ${item.status === "correct" ? "#10b981" : "#ef4444"};">${item.played_pitch || "-"}</span></td>
+      <td><span class="diag-status-badge ${badgeClass}">${badgeText}</span></td>
+      <td style="color: var(--text-muted); font-size: 0.8rem;">${item.feedback || "-"}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function setupDiagnosticFilterButtons() {
+  const filterBtns = document.querySelectorAll("#diag-filter-group button");
+  filterBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      filterBtns.forEach(b => b.classList.toggle("active", b === btn));
+      const filter = btn.dataset.filter || "all";
+      if (evalState.lastEvalResult && evalState.lastEvalResult.details) {
+        populateDiagnosticTable(evalState.lastEvalResult.details, filter);
+      }
+    });
+  });
+}
+
