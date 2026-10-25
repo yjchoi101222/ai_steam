@@ -347,14 +347,92 @@ function normalizePitchForPiano(pitch) {
 }
 
 // ==================== WEB AUDIO & SOUNDFONT ENGINE ====================
+function extractPitchFromOsmdNote(note) {
+  if (!note) return null;
+  if (typeof note.isRest === "function" && note.isRest()) return null;
+  if (note.IsRest === true) return null;
+
+  const pitch = note.Pitch || note.pitch;
+  if (!pitch) return null;
+
+  // 1. OSMD ToStringShort(0) -> "C4", "G#4", "Bb3"
+  if (typeof pitch.ToStringShort === "function") {
+    try {
+      const s = pitch.ToStringShort(0);
+      if (s && /^[A-G][#b]?-?\d+$/i.test(s.trim())) {
+        return s.trim();
+      }
+    } catch (e) {}
+  }
+
+  // 2. OSMD ToStringShortGet
+  if (pitch.ToStringShortGet && /^[A-G][#b]?-?\d+$/i.test(pitch.ToStringShortGet.trim())) {
+    return pitch.ToStringShortGet.trim();
+  }
+
+  // 3. halfTone (standard MIDI number)
+  if (typeof pitch.halfTone === "number" && !isNaN(pitch.halfTone)) {
+    const midi = pitch.halfTone;
+    const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const semitone = ((midi % 12) + 12) % 12;
+    const octave = Math.floor(midi / 12) - 1;
+    return `${noteNames[semitone]}${octave}`;
+  }
+
+  // 4. fundamentalNote & octave
+  if (pitch.fundamentalNote !== undefined && pitch.octave !== undefined) {
+    const noteNames = ["C", "D", "E", "F", "G", "A", "B"];
+    const base = noteNames[pitch.fundamentalNote] || "C";
+    let acc = "";
+    if (pitch.accidentalHalfTones > 0) acc = "#";
+    else if (pitch.accidentalHalfTones < 0) acc = "b";
+    return `${base}${acc}${pitch.octave}`;
+  }
+
+  // 5. Fallback from debug ToString(): "Key: C, Note: 0, octave: 4"
+  if (typeof pitch.ToString === "function") {
+    try {
+      const str = pitch.ToString();
+      const m = str.match(/Key:\s*([A-G][#b]?).*?octave:\s*(-?\d+)/i);
+      if (m) {
+        return `${m[1].toUpperCase()}${m[2]}`;
+      }
+    } catch (e) {}
+  }
+
+  return "C4";
+}
+
+function pitchToMidi(pitchStr) {
+  if (typeof pitchStr === "number") return pitchStr;
+  if (!pitchStr) return 60;
+  const noteMap = { C: 0, "C#": 1, DB: 1, D: 2, "D#": 3, EB: 3, E: 4, F: 5, "F#": 6, GB: 6, G: 7, "G#": 8, AB: 8, A: 9, "A#": 10, BB: 10, B: 11 };
+  const match = pitchStr.match(/^([A-G][#b]?)(-?\d+)$/i);
+  if (!match) return 60;
+  const step = match[1].toUpperCase();
+  const oct = parseInt(match[2], 10);
+  const semi = noteMap[step] !== undefined ? noteMap[step] : 0;
+  return (oct + 1) * 12 + semi;
+}
+
+function pitchToFrequency(pitchStr) {
+  if (typeof pitchStr === "number") {
+    return 440 * Math.pow(2, (pitchStr - 69) / 12);
+  }
+  const midi = pitchToMidi(pitchStr);
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
 async function initAudioEngine() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) return;
 
-  state.audioCtx = new AudioContextClass();
+  if (!state.audioCtx) {
+    state.audioCtx = new AudioContextClass();
+  }
 
-  // SoundFont 로딩 시도
-  if (window.Soundfont && dom.toggleSoundfont.checked) {
+  // SoundFont 로딩 시도 (외부 CDN 연결 가능 시 고품질 음원 장착)
+  if (window.Soundfont && dom.toggleSoundfont && dom.toggleSoundfont.checked) {
     try {
       logToConsole("Acoustic Grand Piano SoundFont 로딩 중...", "system");
       state.soundfontInstrument = await Soundfont.instrument(
@@ -362,18 +440,28 @@ async function initAudioEngine() {
         "acoustic_grand_piano",
         { soundfont: "FluidR3_GM" }
       );
-      logToConsole("SoundFont 로딩 완료 (고품질 피아노 사운드)", "system");
+      logToConsole("SoundFont 로딩 완료 (고품질 피아노 사운드 활성화)", "system");
     } catch (e) {
-      console.warn("SoundFont 로드 실패, 오실레이터 신디사이저로 폴백:", e);
-      logToConsole("SoundFont 로드 실패. 내장 오실레이터로 재생됩니다.", "system");
+      console.warn("SoundFont 로드 실패, 고품질 내장 신디사이저로 상시 구동:", e);
+      logToConsole("내장 Web Audio 어쿠스틱 피아노 신디사이저로 즉시 재생됩니다.", "system");
       state.soundfontInstrument = null;
     }
   }
 }
 
-function ensureAudioContext() {
+async function ensureAudioContext() {
+  if (!state.audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      state.audioCtx = new AudioContextClass();
+    }
+  }
   if (state.audioCtx && state.audioCtx.state === "suspended") {
-    state.audioCtx.resume();
+    try {
+      await state.audioCtx.resume();
+    } catch (e) {
+      console.warn("AudioContext resume failed:", e);
+    }
   }
 }
 
@@ -381,63 +469,94 @@ function playTone(pitchName, durationSeconds = 0.5) {
   ensureAudioContext();
   if (!pitchName || pitchName.toUpperCase() === "REST") return;
 
-  if (state.soundfontInstrument && dom.toggleSoundfont.checked) {
+  let playedWithSoundfont = false;
+
+  // SoundFont 재생 시도
+  if (state.soundfontInstrument && dom.toggleSoundfont && dom.toggleSoundfont.checked) {
     try {
-      state.soundfontInstrument.play(pitchName, state.audioCtx.currentTime, {
+      const audioNode = state.soundfontInstrument.play(pitchName, state.audioCtx.currentTime, {
         duration: durationSeconds,
         gain: state.volume
       });
-      return;
+      if (audioNode) {
+        playedWithSoundfont = true;
+      }
     } catch (e) {
       console.warn("Soundfont play error, fallback to synth:", e);
+      playedWithSoundfont = false;
     }
   }
 
-  // 폴백: 오실레이터 신디사이저 (피아노 배음 에뮬레이션)
-  playSynthTone(pitchName, durationSeconds);
+  // Soundfont가 꺼져있거나, 로딩 중이거나, 샘플이 없는 경우 내장 고품질 Web Audio 피아노 신디사이저로 100% 무조건 재생
+  if (!playedWithSoundfont) {
+    playSynthTone(pitchName, durationSeconds);
+  }
 }
 
-function playSynthTone(pitchName, durationSeconds) {
+function playSynthTone(pitchName, durationSeconds = 0.5) {
   const freq = pitchToFrequency(pitchName);
   if (!freq || !state.audioCtx) return;
 
   const ctx = state.audioCtx;
   const now = ctx.currentTime;
+  const masterVolume = typeof state.volume === "number" ? state.volume : 0.85;
 
-  const osc = ctx.createOscillator();
-  const oscHarmonic = ctx.createOscillator();
-  const gainNode = ctx.createGain();
+  // 1. 기본음 (Triangle wave for warm piano body)
+  const osc1 = ctx.createOscillator();
+  osc1.type = "triangle";
+  osc1.frequency.setValueAtTime(freq, now);
 
-  osc.type = "triangle";
-  osc.frequency.setValueAtTime(freq, now);
+  // 2. 배음 1 (Sine wave for acoustic brightness)
+  const osc2 = ctx.createOscillator();
+  osc2.type = "sine";
+  osc2.frequency.setValueAtTime(freq * 2, now);
 
-  oscHarmonic.type = "sine";
-  oscHarmonic.frequency.setValueAtTime(freq * 2, now);
+  // 3. 배음 2 (Higher sparkle)
+  const osc3 = ctx.createOscillator();
+  osc3.type = "sine";
+  osc3.frequency.setValueAtTime(freq * 3, now);
 
-  // Piano-like ADSR Envelope
-  gainNode.gain.setValueAtTime(0.001, now);
-  gainNode.gain.linearRampToValueAtTime(state.volume * 0.7, now + 0.02); // 빠른 어택
-  gainNode.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.1, durationSeconds * 1.2)); // 자연스러운 디케이
+  // 피아노 해머 타건 및 자연스러운 감쇠 ADSR
+  const gain1 = ctx.createGain();
+  const gain2 = ctx.createGain();
+  const gain3 = ctx.createGain();
+  const masterGain = ctx.createGain();
 
-  osc.connect(gainNode);
-  oscHarmonic.connect(gainNode);
-  gainNode.connect(ctx.destination);
+  const attackTime = 0.005;
+  const decayTime = Math.max(0.18, durationSeconds * 1.4);
 
-  osc.start(now);
-  oscHarmonic.start(now);
-  osc.stop(now + durationSeconds * 1.3);
-  oscHarmonic.stop(now + durationSeconds * 1.3);
-}
+  gain1.gain.setValueAtTime(0.001, now);
+  gain1.gain.linearRampToValueAtTime(0.7, now + attackTime);
+  gain1.gain.exponentialRampToValueAtTime(0.0001, now + decayTime);
 
-function pitchToFrequency(pitchStr) {
-  const noteMap = { C: 0, "C#": 1, DB: 1, D: 2, "D#": 3, EB: 3, E: 4, F: 5, "F#": 6, GB: 6, G: 7, "G#": 8, AB: 8, A: 9, "A#": 10, BB: 10, B: 11 };
-  const match = pitchStr.match(/^([A-G][#b]?)(-?\d+)$/i);
-  if (!match) return 440;
-  const step = match[1].toUpperCase();
-  const oct = parseInt(match[2], 10);
-  const semi = noteMap[step] || 0;
-  const midi = (oct + 1) * 12 + semi;
-  return 440 * Math.pow(2, (midi - 69) / 12);
+  gain2.gain.setValueAtTime(0.001, now);
+  gain2.gain.linearRampToValueAtTime(0.25, now + attackTime);
+  gain2.gain.exponentialRampToValueAtTime(0.0001, now + decayTime * 0.7);
+
+  gain3.gain.setValueAtTime(0.001, now);
+  gain3.gain.linearRampToValueAtTime(0.1, now + attackTime);
+  gain3.gain.exponentialRampToValueAtTime(0.0001, now + decayTime * 0.4);
+
+  masterGain.gain.setValueAtTime(masterVolume, now);
+
+  osc1.connect(gain1);
+  osc2.connect(gain2);
+  osc3.connect(gain3);
+
+  gain1.connect(masterGain);
+  gain2.connect(masterGain);
+  gain3.connect(masterGain);
+
+  masterGain.connect(ctx.destination);
+
+  osc1.start(now);
+  osc2.start(now);
+  osc3.start(now);
+
+  const stopTime = now + decayTime + 0.05;
+  osc1.stop(stopTime);
+  osc2.stop(stopTime);
+  osc3.stop(stopTime);
 }
 
 // ==================== EVENT LISTENERS SETUP ====================
@@ -1113,7 +1232,10 @@ function resetZoom() {
   }
 }
 
+let osmdClickSetupDone = false;
 function setupOsmdClickEvents() {
+  if (osmdClickSetupDone) return;
+  osmdClickSetupDone = true;
   const container = dom.osmdContainer;
   container.addEventListener("click", (e) => {
     // SVG 엘리먼트 클릭 시 가장 가까운 그래픽 음표/기호 탐색
@@ -1151,12 +1273,15 @@ function updateCursorSelection() {
   // 타겟팅된 partIndex의 음표 탐색
   for (const ve of currentVoiceEntries) {
     for (const note of ve.Notes || []) {
-      if (note.isRest()) {
+      if (note.isRest && note.isRest()) {
         isRest = true;
-      } else if (note.Pitch) {
-        foundPitch = note.Pitch.ToString();
-        foundDuration = note.Length ? note.Length.RealValue * 4 : 1.0; // quarter length
-        break;
+      } else {
+        const p = extractPitchFromOsmdNote(note);
+        if (p) {
+          foundPitch = p;
+          foundDuration = note.Length ? note.Length.RealValue * 4 : 1.0; // quarter length
+          break;
+        }
       }
     }
     if (foundPitch || isRest) break;
@@ -1175,7 +1300,8 @@ function updateCursorSelection() {
   dom.selectedNoteDisplay.textContent = 
     `선택: ${currentMeasure}마디 | ${partName} | ${pitchDisplay} | 박자: ${state.selectedNote.duration.toFixed(2)}`;
 
-  if (foundPitch) {
+  if (foundPitch && !state.isPlaying) {
+    playTone(foundPitch, 0.35);
     highlightPianoKey(foundPitch, 250);
   }
 }
@@ -1320,16 +1446,24 @@ function buildPlaybackTimeline() {
 
     for (const ve of voiceEntries) {
       for (const note of ve.Notes || []) {
-        if (!note.isRest() && note.Pitch) {
-          notesInStep.push(note.Pitch.ToString());
+        const p = extractPitchFromOsmdNote(note);
+        if (p) {
+          notesInStep.push(p);
         }
       }
     }
 
     // Step duration in beats (quarter lengths)
-    const stepDuration = iterator.CurrentVoiceEntries.length > 0 && iterator.CurrentVoiceEntries[0].Notes.length > 0
-      ? (iterator.CurrentVoiceEntries[0].Notes[0].Length ? iterator.CurrentVoiceEntries[0].Notes[0].Length.RealValue * 4 : 1.0)
-      : 1.0;
+    let stepDuration = 1.0;
+    if (iterator.CurrentVoiceEntries && iterator.CurrentVoiceEntries.length > 0) {
+      const ve0 = iterator.CurrentVoiceEntries[0];
+      if (ve0.Notes && ve0.Notes.length > 0 && ve0.Notes[0].Length) {
+        stepDuration = ve0.Notes[0].Length.RealValue * 4;
+      }
+    }
+    if (!stepDuration || isNaN(stepDuration) || stepDuration <= 0) {
+      stepDuration = 1.0;
+    }
 
     state.scoreNotesTimeline.push({
       stepIndex,
@@ -1345,23 +1479,37 @@ function buildPlaybackTimeline() {
   }
 
   cursor.reset();
+  if (state.scoreNotesTimeline.length > 0) {
+    logToConsole(`🎵 연주 타임라인 구축 완료: 총 ${state.scoreNotesTimeline.length}개 스텝 준비됨.`, "system");
+  }
 }
 
-function togglePlayPause() {
+async function togglePlayPause() {
+  await ensureAudioContext();
   if (state.isPlaying) {
     pausePlayback();
   } else {
-    startPlayback();
+    await startPlayback();
   }
 }
 
-function startPlayback() {
-  if (!state.osmd || state.scoreNotesTimeline.length === 0) {
-    alert("재생할 악보가 준비되지 않았습니다.");
+async function startPlayback() {
+  if (!state.osmd) {
+    alert("악보가 로드되지 않았습니다.");
     return;
   }
 
-  ensureAudioContext();
+  // 타임라인이 비어있으면 즉시 재구축
+  if (!state.scoreNotesTimeline || state.scoreNotesTimeline.length === 0) {
+    buildPlaybackTimeline();
+  }
+
+  if (!state.scoreNotesTimeline || state.scoreNotesTimeline.length === 0) {
+    alert("재생할 악보 음표가 준비되지 않았습니다. 악보 렌더링 상태를 확인해 주세요.");
+    return;
+  }
+
+  await ensureAudioContext();
   state.isPlaying = true;
   dom.btnPlayPause.classList.add("is-playing");
   dom.playIcon.textContent = "⏸";
@@ -1371,8 +1519,8 @@ function startPlayback() {
   cursor.show();
   cursor.reset();
 
-  const secondsPerBeat = 60.0 / state.bpm;
-  const startTime = state.audioCtx.currentTime + 0.1;
+  const secondsPerBeat = 60.0 / (state.bpm || 100);
+  const startTime = state.audioCtx.currentTime + 0.05;
 
   // Clear existing timeouts
   state.playbackTimeouts.forEach(t => clearTimeout(t));
@@ -1385,22 +1533,25 @@ function startPlayback() {
     const timeoutId = setTimeout(() => {
       if (!state.isPlaying) return;
 
-      // 1. Move cursor
-      cursor.reset();
-      for (let s = 0; s < event.stepIndex; s++) {
+      // 1. 커서 이동 (O(1) 단일 스텝 전진)
+      if (idx === 0) {
+        cursor.reset();
+      } else {
         cursor.next();
       }
 
-      // 2. Play Audio
-      event.pitches.forEach(pitch => {
-        playTone(pitch, event.duration * secondsPerBeat * 0.95);
-        highlightPianoKey(pitch, event.duration * secondsPerBeat * 800);
-      });
+      // 2. 음표 사운드 재생 및 가상 건반 애니메이션
+      if (event.pitches && event.pitches.length > 0) {
+        event.pitches.forEach(pitch => {
+          playTone(pitch, Math.max(0.18, event.duration * secondsPerBeat * 0.95));
+          highlightPianoKey(pitch, Math.max(180, event.duration * secondsPerBeat * 800));
+        });
+      }
 
-      // 3. Auto Scroll smoothly
+      // 3. 화면 부드러운 스크롤 추적
       autoScrollToCursor();
 
-      // Check end
+      // 마지막 음표 연주 후 정지 처리
       if (idx === state.scoreNotesTimeline.length - 1) {
         setTimeout(() => stopPlayback(), event.duration * secondsPerBeat * 1000);
       }
