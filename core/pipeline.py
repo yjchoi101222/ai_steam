@@ -41,8 +41,8 @@ def prepare_safe_oemer_image(img_path: str):
         return
 
     h, w = img.shape[:2]
-    # 512MB RAM OOM 방지: 최대 변 길이 1200px 캡핑
-    max_dim = 1200
+    # 512MB RAM OOM 방지: 최대 변 길이 1024px 캡핑
+    max_dim = 1024
     if max(w, h) > max_dim:
         scale = max_dim / float(max(w, h))
         w = int(round(w * scale))
@@ -300,6 +300,10 @@ class SheetMusicAnalyzerPipeline:
             except Exception as e:
                 print(f"[Cancel Error] 프로세스 강제 종료 중 예외: {e}")
         return True
+
+    def is_extracting(self) -> bool:
+        """현재 실행 중인 OMR 작업이 있는지 여부를 반환합니다 (512MB RAM 인스턴스 보호)."""
+        return self._omr_execution_lock.locked()
 
     def _run_extract_worker(self, job_id: str, file_hash: str, filename: str, mode: str):
         """백그라운드 스레드에서 oemer 엔진을 호출하고 상태를 갱신합니다."""
@@ -669,8 +673,8 @@ class SheetMusicAnalyzerPipeline:
         try:
             from PIL import Image, ImageOps
             img = Image.open(io.BytesIO(image_bytes))
-            # 512MB RAM OOM 방지: 경량 fast 모드 1024px, 정밀 deep 모드 1400px 캡핑
-            max_dim = 1400 if mode == "deep" else 1024
+            # 512MB RAM OOM 방지: 최대 해상도 1024px 절대 캡핑
+            max_dim = 1024
             w, h = img.size
             if max(w, h) > max_dim:
                 if progress_callback:
@@ -785,7 +789,7 @@ from PIL import Image
 def _safe_resize_image(image: Image.Image):
     w, h = image.size
     pis = w * h
-    max_pis = 1100000
+    max_pis = 950000
     if pis > max_pis:
         ratio = (max_pis / pis) ** 0.5
         tar_w = max(32, round((round(ratio * w) // 32) * 32))

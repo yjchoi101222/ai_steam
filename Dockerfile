@@ -1,6 +1,6 @@
 # AI-STEAM Interactive Sheet Music Studio
 # Production Multi-Platform Dockerfile (Render, HuggingFace, Fly.io, Railway)
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -37,4 +37,4 @@ RUN mkdir -p /app/omr_cache
 EXPOSE 10000
 
 # Uvicorn 프로덕션 실행
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT"]

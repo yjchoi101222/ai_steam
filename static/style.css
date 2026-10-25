@@ -912,20 +912,22 @@ input:checked + .switch-slider:before {
 /* ==================== OSMD CONTAINER ==================== */
 .sheet-viewport {
   position: relative;
-  min-height: 380px;
+  min-height: 420px;
   background: #ffffff;
   color: #111827;
   padding: 1.5rem;
   overflow-x: auto;
   overflow-y: auto;
-  max-height: 520px;
+  max-height: 560px;
   border-bottom: 1px solid var(--border-color);
   scroll-behavior: smooth;
+  width: 100%;
 }
 
 .osmd-canvas-container {
   width: 100%;
-  min-height: 350px;
+  min-width: 580px;
+  min-height: 380px;
 }
 
 .sheet-placeholder {

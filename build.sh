@@ -14,7 +14,7 @@ pip install --no-cache-dir -r requirements.txt
 
 # 3. Ensure lightweight CPU onnxruntime binary (prevent GPU driver mismatch & reduce memory footprint)
 pip uninstall -y onnxruntime-gpu || true
-pip install --no-cache-dir --force-reinstall --no-deps onnxruntime
+pip install --no-cache-dir --force-reinstall --no-deps onnxruntime==1.17.3
 
 # 4. Pre-download deep learning ONNX checkpoints into container
 echo "[STEP] Pre-downloading oemer ONNX checkpoints..."

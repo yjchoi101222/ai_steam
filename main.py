@@ -134,7 +134,12 @@ async def preprocess(file: UploadFile = File(...)):
 
 @app.post("/api/extract")
 async def extract(req: ExtractRequest):
-    """[2단계] 비동기 OMR(oemer) 추출 작업 등록"""
+    """[2단계] 비동기 OMR(oemer) 추출 작업 등록 (512MB RAM 인스턴스 동시 실행 방지)"""
+    if pipeline.is_extracting():
+        raise HTTPException(
+            status_code=429,
+            detail="현재 다른 악보 인식 작업이 진행 중입니다. 클라우드 메모리(512MB) 보호를 위해 이전 작업이 끝난 후 다시 시도해 주세요."
+        )
     try:
         job_id = pipeline.start_extract_job(
             file_hash=req.file_hash,

@@ -816,10 +816,43 @@ function pollExtractStatus(jobId) {
   return new Promise((resolve, reject) => {
     if (state.pollInterval) clearInterval(state.pollInterval);
 
+    let pollCount = 0;
+    const MAX_POLLS = 100; // 100 * 1.5초 = 150초 (2분 30초 타임아웃 안전장치)
+    let consecutiveErrors = 0;
+
     state.pollInterval = setInterval(async () => {
+      pollCount++;
+      if (pollCount > MAX_POLLS) {
+        clearInterval(state.pollInterval);
+        dom.btnCancelExtract.classList.add("hidden");
+        dom.btnExtract.disabled = false;
+        setStepStatus(dom.statusExtract, "error", "시간 초과");
+        const timeoutMsg = "악보 분석 시간이 초과되었습니다 (2분 30초 초과). [모드 전환 후 재시도]를 권장합니다.";
+        showOmrFailure(timeoutMsg);
+        logToConsole(timeoutMsg, "error");
+        reject(new Error(timeoutMsg));
+        return;
+      }
+
       try {
         const res = await fetch(`/api/extract/status/${jobId}`);
-        if (!res.ok) throw new Error("진행률 확인 불가");
+        if (!res.ok) {
+          consecutiveErrors++;
+          if (consecutiveErrors >= 4) {
+            clearInterval(state.pollInterval);
+            dom.btnCancelExtract.classList.add("hidden");
+            dom.btnExtract.disabled = false;
+            setStepStatus(dom.statusExtract, "error", "서버 응답 없음");
+            const serverErrMsg = "서버 응답이 없습니다 (서버 재시작 감지). [다시 시도]를 눌러주세요.";
+            showOmrFailure(serverErrMsg);
+            logToConsole(serverErrMsg, "error");
+            reject(new Error(serverErrMsg));
+            return;
+          }
+          return;
+        }
+
+        consecutiveErrors = 0;
         const statusData = await res.json();
 
         // UI 갱신
