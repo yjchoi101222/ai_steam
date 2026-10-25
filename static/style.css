@@ -716,6 +716,13 @@ input:checked + .switch-slider:before {
   font-size: 0.78rem;
 }
 
+.playback-downloads {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .osmd-zoom-controls {
   display: flex;
   align-items: center;

@@ -265,11 +265,23 @@
           </div>
 
           <div class="control-group">
-            <label class="checkbox-inline">
-              <input type="checkbox" id="toggle-soundfont" checked>
-              <span>Acoustic Grand SoundFont</span>
+            <label class="checkbox-inline" title="체크 시 외부 SoundFont 샘플을 다운로드하여 연주에 적용합니다. 미체크 시 초고속 내장 Web Audio 피아노로 즉시 연주됩니다.">
+              <input type="checkbox" id="toggle-soundfont">
+              <span>SoundFont 확장</span>
             </label>
           </div>
+        </div>
+
+        <div class="playback-downloads">
+          <button class="btn btn-accent btn-sm" id="btn-dl-wav" title="현재 악보의 연주를 고품질 WAV 오디오 파일로 즉시 렌더링하여 다운로드합니다.">
+            <span>🎵</span> WAV 음원 받기
+          </button>
+          <a href="/api/cache/demo.mid" class="btn btn-secondary btn-sm" id="btn-dl-midi-toolbar" download="score.mid" title="현재 악보를 MIDI 음악 파일로 다운로드합니다.">
+            <span>🎹</span> MIDI 받기
+          </a>
+          <a href="/api/cache/demo.musicxml" class="btn btn-outline btn-sm" id="btn-dl-xml-toolbar" download="score.musicxml" title="MusicXML 악보 파일 다운로드">
+            <span>📄</span> XML 받기
+          </a>
         </div>
 
         <div class="osmd-zoom-controls">
