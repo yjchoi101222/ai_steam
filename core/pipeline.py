@@ -9,6 +9,8 @@ import hashlib
 import shutil
 import threading
 import multiprocessing
+import gc
+import ctypes
 from typing import Dict, Any, Optional, List, Tuple
 
 # Windows cp949 인코딩 오류 완전 방지 (in-place reconfigure)
@@ -362,6 +364,12 @@ class SheetMusicAnalyzerPipeline:
                         self.jobs[job_id]["error"] = str(e)
                         self.jobs[job_id]["message"] = f"악보 인식 실패: {str(e)}"
             finally:
+                gc.collect()
+                try:
+                    libc = ctypes.CDLL("libc.so.6")
+                    libc.malloc_trim(0)
+                except Exception:
+                    pass
                 with self._lock:
                     if job_id in self.job_processes:
                         del self.job_processes[job_id]
