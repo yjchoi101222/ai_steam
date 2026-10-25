@@ -31,19 +31,25 @@ from core.image_optimizer import SheetMusicOptimizer
 
 def prepare_safe_oemer_image(img_path: str):
     """
-    oemer U-Net(ConvTranspose) 음수 패딩 오류 방지:
-    입력 이미지 해상도를 32의 배수이면서 최소 1024px 이상의 정규화된 크기로 보정합니다.
+    oemer U-Net(ConvTranspose) 음수 패딩 오류 방지 및 메모리 보호:
+    입력 이미지 해상도를 32의 배수로 맞추고, 최대 변 길이를 1200px 이하로 제한합니다.
     """
     img = cv2.imread(img_path)
     if img is None:
         return
 
     h, w = img.shape[:2]
-    # 가로/세로 길이를 32의 배수로 맞추고 최소 해상도 1024px 보장
-    safe_w = max(1024, ((w + 31) // 32) * 32)
-    safe_h = max(1024, ((h + 31) // 32) * 32)
+    # 512MB RAM OOM 방지: 최대 변 길이 1200px 캡핑
+    max_dim = 1200
+    if max(w, h) > max_dim:
+        scale = max_dim / float(max(w, h))
+        w = int(round(w * scale))
+        h = int(round(h * scale))
 
-    if (w, h) != (safe_w, safe_h):
+    safe_w = max(32, ((w + 31) // 32) * 32)
+    safe_h = max(32, ((h + 31) // 32) * 32)
+
+    if img.shape[1] != safe_w or img.shape[0] != safe_h:
         resized = cv2.resize(img, (safe_w, safe_h), interpolation=cv2.INTER_LANCZOS4)
         cv2.imwrite(img_path, resized)
 
@@ -85,8 +91,6 @@ def run_omr_protected(
         return output_xml_path
 
     raise RuntimeError("OMR 결과 MusicXML 파일이 생성되지 않았습니다.")
-
-    return output_xml_path
 
 
 class SheetMusicAnalyzerPipeline:
@@ -751,6 +755,7 @@ def _patched_InferenceSession(path_or_bytes, *args, **kwargs):
     sess_options.intra_op_num_threads = 1
     sess_options.inter_op_num_threads = 1
     kwargs["sess_options"] = sess_options
+    kwargs["providers"] = ["CPUExecutionProvider"]
     return _orig_InferenceSession(path_or_bytes, *args, **kwargs)
 
 ort.InferenceSession = _patched_InferenceSession
@@ -764,6 +769,39 @@ def _trim_memory():
         pass
 
 _trim_memory()
+
+# oemer 3.67M 픽셀 강제 업스케일링 방지 Monkey-Patch (512MB RAM OOM 방지 결정타)
+import oemer.inference
+from PIL import Image
+
+def _safe_resize_image(image: Image.Image):
+    w, h = image.size
+    pis = w * h
+    max_pis = 1100000
+    if pis > max_pis:
+        ratio = (max_pis / pis) ** 0.5
+        tar_w = max(32, round((round(ratio * w) // 32) * 32))
+        tar_h = max(32, round((round(ratio * h) // 32) * 32))
+        return image.resize((tar_w, tar_h), Image.Resampling.BILINEAR)
+    pad_w = ((w + 31) // 32) * 32
+    pad_h = ((h + 31) // 32) * 32
+    if (w, h) != (pad_w, pad_h):
+        return image.resize((pad_w, pad_h), Image.Resampling.BILINEAR)
+    return image
+
+oemer.inference.resize_image = _safe_resize_image
+
+# inference 배치 크기 축소 (4 -> 2) 및 전후 메모리 강제 회수
+_orig_inference = oemer.inference.inference
+def _low_mem_inference(model_path, img_path, step_size=128, batch_size=2, manual_th=None, use_tf=False):
+    gc.collect()
+    _trim_memory()
+    res = _orig_inference(model_path, img_path, step_size=step_size, batch_size=2, manual_th=manual_th, use_tf=use_tf)
+    gc.collect()
+    _trim_memory()
+    return res
+
+oemer.inference.inference = _low_mem_inference
 
 from oemer.ete import extract, clear_data
 
