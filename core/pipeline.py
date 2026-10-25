@@ -815,6 +815,32 @@ def _low_mem_inference(model_path, img_path, step_size=128, batch_size=2, manual
 
 oemer.inference.inference = _low_mem_inference
 
+# 70% 구간(기호 분류) 반복 pickle.load 디스크 I/O 병목 제거 (메모리 캐싱)
+import pickle
+from oemer import MODULE_PATH
+import oemer.symbol_extraction
+
+_SKLEARN_CACHE = dict()
+
+def _cached_predict(region, model_name: str):
+    if np.max(region) == 1:
+        region = region * 255
+    if model_name not in _SKLEARN_CACHE:
+        model_path = os.path.join(MODULE_PATH, "sklearn_models", str(model_name) + ".model")
+        with open(model_path, "rb") as f:
+            _SKLEARN_CACHE[model_name] = pickle.load(f)
+    m_info = _SKLEARN_CACHE[model_name]
+    model = m_info["model"]
+    w = m_info["w"]
+    h = m_info["h"]
+    region_img = Image.fromarray(region.astype(np.uint8)).resize((w, h))
+    region_arr = np.array(region_img)
+    pred = model.predict(region_arr.reshape(1, -1))
+    return m_info["class_map"][pred[0]]
+
+oemer.inference.predict = _cached_predict
+oemer.symbol_extraction.predict = _cached_predict
+
 from oemer.ete import extract, clear_data
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
@@ -867,7 +893,7 @@ finally:
                 with self._lock:
                     self.job_processes[job_id] = process
 
-            current_percent = 15
+            current_percent = 10
             while True:
                 if cancel_check_callback and cancel_check_callback():
                     process.terminate()
@@ -886,17 +912,38 @@ finally:
                         pass
                     if progress_callback:
                         l_lower = line_str.lower()
-                        if "staff" in l_lower:
-                            current_percent = max(current_percent, 25)
-                        elif "dewarp" in l_lower or "deskew" in l_lower:
+                        display_msg = f"oemer > {line_str}"
+                        if "extracting staffline and symbols" in l_lower:
+                            current_percent = max(current_percent, 20)
+                            display_msg = "[1/2] 악보 오선 및 기본 구조 감지 중 (U-Net)..."
+                        elif "extracting layers of different symbols" in l_lower:
                             current_percent = max(current_percent, 35)
-                        elif "clef" in l_lower or "key" in l_lower:
-                            current_percent = max(current_percent, 50)
-                        elif "note" in l_lower or "symbol" in l_lower:
-                            current_percent = max(current_percent, 70)
-                        elif "build" in l_lower or "export" in l_lower or "musicxml" in l_lower:
-                            current_percent = max(current_percent, 90)
-                        progress_callback(f"oemer > {line_str}", current_percent)
+                            display_msg = "[2/2] 음표 머리, 기둥, 기호 레이어 분리 추론 중 (SegNet)..."
+                        elif "dewarp" in l_lower or "deskew" in l_lower:
+                            current_percent = max(current_percent, 45)
+                            display_msg = "악보 왜곡 및 회전 보정(Dewarping) 중..."
+                        elif "extracting stafflines" in l_lower:
+                            current_percent = max(current_percent, 55)
+                            display_msg = "오선 좌표 및 보표 구역 추출 중..."
+                        elif "extracting noteheads" in l_lower:
+                            current_percent = max(current_percent, 65)
+                            display_msg = "음표 머리 위치 및 피치 좌표 분석 중..."
+                        elif "grouping noteheads" in l_lower:
+                            current_percent = max(current_percent, 72)
+                            display_msg = "음표 그룹화 및 기둥 연결 분석 중..."
+                        elif "extracting symbols" in l_lower:
+                            current_percent = max(current_percent, 80)
+                            display_msg = "음자리표, 조표, 임시표, 쉼표 기호 식별 중..."
+                        elif "extracting rhythm" in l_lower or "rhythm types" in l_lower:
+                            current_percent = max(current_percent, 88)
+                            display_msg = "박자표 및 꼬리/빔 리듬 분석 중..."
+                        elif "building musicxml" in l_lower or "musicxml document" in l_lower:
+                            current_percent = max(current_percent, 95)
+                            display_msg = "MusicXML 악보 데이터 구조 빌드 중..."
+                        elif "musicxml" in l_lower or "export" in l_lower:
+                            current_percent = max(current_percent, 95)
+                            display_msg = "악보 데이터 내보내기 단계..."
+                        progress_callback(display_msg, current_percent)
 
             return_code = process.wait(timeout=600)
             expected_xml_path = os.path.join(temp_work_dir, "input_sheet.musicxml")
